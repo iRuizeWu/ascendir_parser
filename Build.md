@@ -303,10 +303,10 @@ ldd build/src/ascendir_parser
 nm -C build/lib/libBiShengIRHIVMDialect.a | grep "Dialect"
 
 # 查看编译命令
-make VERBOSE=1
+cmake --build . --verbose
 
 # 清理并重新构建
-rm -rf build/* && cmake .. && make -j$(nproc)
+rm -rf build/* && cmake -G Ninja .. && cmake --build . -j$(nproc)
 
 # 查看BiShengIR库列表
 ls /home/ruize/code/github/AscendNPU-IR/build/lib/libBiShengIR*.a | xargs -I{} basename {} .a | sed 's/lib//'
@@ -327,6 +327,7 @@ ls /home/ruize/code/github/AscendNPU-IR/build/lib/libMLIR*.a | xargs -I{} basena
 | MLIR Dialect | MLIRMemRefDialect | 内存引用 |
 | MLIR Dialect | MLIRLinalgDialect | 线性代数 |
 | MLIR Dialect | MLIRSCFDialect | 控制流 |
+| MLIR Dialect | MLIRControlFlowDialect | 控制流操作 |
 | MLIR Dialect | MLIRTensorDialect | 张量操作 |
 | MLIR Dialect | MLIRMathDialect | 数学函数 |
 | BiShengIR | BiShengIRHIVMDialect | HIVM方言 |
@@ -346,7 +347,8 @@ ascendir_parser/
 ├── src/
 │   ├── CMakeLists.txt      # 源码构建配置
 │   ├── main.cpp            # 主程序入口
-│   └── Parser.cpp          # MLIR解析实现
+│   ├── Parser.cpp          # MLIR解析实现
+│   └── Analyzer.cpp        # MLIR未注册操作分析器
 ├── Build.md                # 本文件
 └── README.md               # 项目说明
 ```

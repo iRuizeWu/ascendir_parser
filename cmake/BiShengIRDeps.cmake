@@ -9,12 +9,13 @@ set(BISHENGIR_DIALECT_LIBS
     BiShengIRMemRefExtDialect
     BiShengIRScopeDialect
     BiShengIRSymbolDialect
-    BiShengIRTensorDialect
     BiShengIRMathExtDialect
     BiShengIRDialectUtils
     BiShengIRMemRefDialect
     BiShengIRMemRefTransforms
     BiShengIRLinalgDialectExt
+    BiShengIRTensorDialect
+    BiShengIRTensorUtils
     CACHE INTERNAL "BiShengIR dialect libraries"
 )
 
@@ -22,6 +23,7 @@ set(MLIR_DIALECT_LIBS
     MLIRLinalgDialect
     MLIRSCFDialect
     MLIRTensorDialect
+    MLIRTensorUtils
     MLIRMathDialect
     MLIRAffineDialect
     MLIRBufferizationDialect

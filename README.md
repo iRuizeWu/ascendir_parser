@@ -8,6 +8,7 @@ MLIR文件解析器，支持解析和打印MLIR IR，包括BiShengIR dialect。
 - 支持`--dump`选项，显示函数入口和IR源字符串
 - 支持标准MLIR dialect（func, arith, memref等）
 - 支持BiShengIR dialect（hivm, hfusion, hacc等）
+- 分析未注册操作（intr、hivm.intr等），提取属性、操作数、结果等详细信息
 
 ## 目录结构
 
@@ -21,7 +22,8 @@ ascendir_parser/
 ├── src/
 │   ├── CMakeLists.txt      # 源码构建配置
 │   ├── main.cpp            # 主程序入口
-│   └── Parser.cpp          # MLIR解析实现
+│   ├── Parser.cpp          # MLIR解析实现
+│   └── Analyzer.cpp        # MLIR未注册操作分析器
 ├── build/                  # 构建目录（生成）
 ├── Build.md                # 构建指南和依赖分析
 └── README.md               # 本文件
@@ -56,11 +58,11 @@ cd /home/ruize/code/github/ascendir_parser
 
 mkdir -p build && cd build
 
-cmake .. \
+cmake -G Ninja .. \
     -DLLVM_DIR=/home/ruize/code/github/AscendNPU-IR/build \
     -DMLIR_DIR=/home/ruize/code/github/AscendNPU-IR/build/lib/cmake/mlir
 
-make -j$(nproc)
+cmake --build . -j$(nproc)
 ```
 
 ### 2. 完整编译（含BiShengIR支持）
@@ -70,13 +72,13 @@ cd /home/ruize/code/github/ascendir_parser
 
 mkdir -p build && cd build
 
-cmake .. \
+cmake -G Ninja .. \
     -DLLVM_DIR=/home/ruize/code/github/AscendNPU-IR/build \
     -DMLIR_DIR=/home/ruize/code/github/AscendNPU-IR/build/lib/cmake/mlir \
     -DBISHENGIR_DIR=/home/ruize/code/github/AscendNPU-IR/build \
     -DBISHENGIR_SOURCE_DIR=/home/ruize/code/github/AscendNPU-IR
 
-make -j$(nproc)
+cmake --build . -j$(nproc)
 ```
 
 ### 3. 重新构建（清理后）
@@ -84,12 +86,12 @@ make -j$(nproc)
 ```bash
 cd /home/ruize/code/github/ascendir_parser/build
 rm -rf *
-cmake .. \
+cmake -G Ninja .. \
     -DLLVM_DIR=/home/ruize/code/github/AscendNPU-IR/build \
     -DMLIR_DIR=/home/ruize/code/github/AscendNPU-IR/build/lib/cmake/mlir \
     -DBISHENGIR_DIR=/home/ruize/code/github/AscendNPU-IR/build \
     -DBISHENGIR_SOURCE_DIR=/home/ruize/code/github/AscendNPU-IR
-make -j$(nproc)
+cmake --build . -j$(nproc)
 ```
 
 ### 4. 一键编译脚本
@@ -97,14 +99,14 @@ make -j$(nproc)
 ```bash
 # 基础版
 cd /home/ruize/code/github/ascendir_parser && rm -rf build/* && \
-cmake -S . -B build \
+cmake -G Ninja -S . -B build \
     -DLLVM_DIR=/home/ruize/code/github/AscendNPU-IR/build \
     -DMLIR_DIR=/home/ruize/code/github/AscendNPU-IR/build/lib/cmake/mlir && \
 cmake --build build -j$(nproc)
 
 # 完整版
 cd /home/ruize/code/github/ascendir_parser && rm -rf build/* && \
-cmake -S . -B build \
+cmake -G Ninja -S . -B build \
     -DLLVM_DIR=/home/ruize/code/github/AscendNPU-IR/build \
     -DMLIR_DIR=/home/ruize/code/github/AscendNPU-IR/build/lib/cmake/mlir \
     -DBISHENGIR_DIR=/home/ruize/code/github/AscendNPU-IR/build \
@@ -185,6 +187,8 @@ func.func @mul_add_mix_aic(%arg0: memref<64x64xf16>, ...) {
 | test2.mlir | arith dialect测试 |
 | test_memref.mlir | memref dialect测试 |
 | test_hivm.mlir | BiShengIR HIVM dialect测试 |
+| test_llvm_hivm_intr.mlir | LLVM + HIVM intrinsic测试 |
+| test_with_branch.mlir | 控制流分支测试 |
 
 ### 运行所有测试
 
@@ -252,8 +256,8 @@ set(MLIR_DIALECT_LIBS
 
 ## 构建时间
 
-- 基础版（无BiShengIR）：约10秒
-- 完整版（含BiShengIR）：约15秒
+- 基础版（无BiShengIR，使用Ninja）：约5秒
+- 完整版（含BiShengIR，使用Ninja）：约10秒
 
 ---
 

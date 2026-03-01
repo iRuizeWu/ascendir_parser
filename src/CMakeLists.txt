@@ -1,6 +1,7 @@
 add_executable(ascendir_parser
   main.cpp
   Parser.cpp
+  Analyzer.cpp
 )
 
 target_include_directories(ascendir_parser PRIVATE
@@ -14,6 +15,8 @@ target_link_libraries(ascendir_parser PRIVATE
   MLIRFuncDialect
   MLIRArithDialect
   MLIRMemRefDialect
+  MLIRLLVMDialect
+  MLIRControlFlowDialect
 )
 
 if(BISHENGIR_DIR AND BISHENGIR_SOURCE_DIR)

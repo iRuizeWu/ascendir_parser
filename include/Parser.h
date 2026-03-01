@@ -21,6 +21,7 @@ public:
 
   mlir::OwningOpRef<mlir::ModuleOp> parseFile(const std::string &filename);
   void printModule(mlir::ModuleOp module);
+  void printOps(mlir::ModuleOp module, bool detailedFormat = false);
   
   std::vector<FunctionInfo> extractFunctions(mlir::ModuleOp module);
 
@@ -28,5 +29,7 @@ private:
   class Impl;
   std::unique_ptr<Impl> impl;
 };
+
+void analyzeUnregisteredOps(mlir::ModuleOp module);
 
 }

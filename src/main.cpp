@@ -6,18 +6,30 @@
 void printUsage(const char *progName) {
   std::cerr << "Usage: " << progName << " [options] <mlir-file>\n"
             << "Options:\n"
-            << "  --dump    Print function entries and IR source strings\n"
-            << "  --help    Show this help message\n";
+            << "  --dump      Print function entries and IR source strings\n"
+            << "  --analyze   Analyze unregistered operations\n"
+            << "  --printops  Print all operations line by line\n"
+            << "  --printops-detailed  Print all operations with detailed format\n"
+            << "  --help      Show this help message\n";
 }
 
 int main(int argc, char **argv) {
   bool dumpMode = false;
+  bool analyzeMode = false;
+  bool printOpsMode = false;
+  bool printOpsDetailedMode = false;
   std::string inputFile;
 
   for (int i = 1; i < argc; ++i) {
     std::string arg = argv[i];
     if (arg == "--dump") {
       dumpMode = true;
+    } else if (arg == "--analyze") {
+      analyzeMode = true;
+    } else if (arg == "--printops") {
+      printOpsMode = true;
+    } else if (arg == "--printops-detailed") {
+      printOpsDetailedMode = true;
     } else if (arg == "--help") {
       printUsage(argv[0]);
       return 0;
@@ -42,7 +54,13 @@ int main(int argc, char **argv) {
     return 1;
   }
 
-  if (dumpMode) {
+  if (analyzeMode) {
+    ascendir_parser::analyzeUnregisteredOps(*module);
+  } else if (printOpsDetailedMode) {
+    parser.printOps(*module, true);
+  } else if (printOpsMode) {
+    parser.printOps(*module, false);
+  } else if (dumpMode) {
     auto functions = parser.extractFunctions(*module);
     std::cout << "=== Function Entries ===\n";
     for (const auto &func : functions) {
