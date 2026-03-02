@@ -5,6 +5,28 @@ set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
+# 设置默认构建类型为Release
+if(NOT CMAKE_BUILD_TYPE)
+  set(CMAKE_BUILD_TYPE Release CACHE STRING "Choose the type of build, options are: None Debug Release RelWithDebInfo MinSizeRel." FORCE)
+endif()
+
+# 优化选项
+set(CMAKE_CXX_FLAGS_RELEASE "${CMAKE_CXX_FLAGS_RELEASE} -O2 -DNDEBUG")
+set(CMAKE_CXX_FLAGS_MINSIZEREL "${CMAKE_CXX_FLAGS_MINSIZEREL} -Os -DNDEBUG")
+
+# 启用链接时优化
+include(CheckIPOSupported)
+check_ipo_supported(RESULT ipo_supported OUTPUT ipo_error)
+if(ipo_supported)
+  message(STATUS "IPO/LTO enabled")
+  set(CMAKE_INTERPROCEDURAL_OPTIMIZATION TRUE)
+else()
+  message(STATUS "IPO/LTO not supported: ${ipo_error}")
+endif()
+
+# 移除不必要的符号
+set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -s")
+
 set(LLVM_DIR "" CACHE PATH "LLVM install directory (contains lib/cmake/llvm)")
 set(MLIR_DIR "" CACHE PATH "MLIR install directory (contains lib/cmake/mlir)")
 set(BISHENGIR_DIR "" CACHE PATH "BiShengIR build/install directory")
