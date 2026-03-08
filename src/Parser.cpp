@@ -7,17 +7,10 @@
 #include "mlir/Dialect/MemRef/IR/MemRef.h"
 #include "mlir/Dialect/LLVMIR/LLVMDialect.h"
 #include "mlir/Dialect/ControlFlow/IR/ControlFlow.h"
+#include "mlir/Dialect/SCF/IR/SCF.h"
 #include "llvm/Support/SourceMgr.h"
 #include "llvm/Support/FileUtilities.h"
 #include "llvm/ADT/StringRef.h"
-
-#ifdef USE_BISHENGIR
-#include "bishengir/Dialect/HIVM/IR/HIVM.h"
-#include "bishengir/Dialect/HFusion/IR/HFusion.h"
-#include "bishengir/Dialect/HACC/IR/HACC.h"
-#include "bishengir/Dialect/Annotation/IR/Annotation.h"
-#include "bishengir/Dialect/MemRefExt/IR/MemRefExt.h"
-#endif
 
 namespace ascendir_parser {
 
@@ -35,12 +28,7 @@ public:
     registry.insert<mlir::memref::MemRefDialect>();
     registry.insert<mlir::LLVM::LLVMDialect>();
     registry.insert<mlir::cf::ControlFlowDialect>();
-#ifdef USE_BISHENGIR
-    registry.insert<mlir::hfusion::HFusionDialect>();
-    registry.insert<mlir::hacc::HACCDialect>();
-    registry.insert<mlir::annotation::AnnotationDialect>();
-    registry.insert<bishengir::memref_ext::MemRefExtDialect>();
-#endif
+    registry.insert<mlir::scf::SCFDialect>();
     context.appendDialectRegistry(registry);
     context.loadAllAvailableDialects();
   }
