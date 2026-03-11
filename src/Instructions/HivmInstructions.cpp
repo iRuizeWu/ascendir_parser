@@ -58,40 +58,30 @@ mlir::Type getElementType(mlir::Value memref) {
     return mlir::Type();
 }
 
-template<typename T>
-T convertAPFloatToType(const llvm::APFloat& apf, const llvm::fltSemantics& semantics);
-
-template<>
-llvm::APFloat convertAPFloatToType<llvm::APFloat>(const llvm::APFloat& apf, const llvm::fltSemantics& semantics) {
-    return apf;
-}
-
-template<>
-float convertAPFloatToType<float>(const llvm::APFloat& apf, const llvm::fltSemantics& semantics) {
-    llvm::APFloat converted = apf;
-    bool ignored;
-    converted.convert(llvm::APFloat::IEEEsingle(), llvm::APFloat::rmNearestTiesToEven, &ignored);
-    return converted.convertToFloat();
-}
-
-template<>
-uint16_t convertAPFloatToType<uint16_t>(const llvm::APFloat& apf, const llvm::fltSemantics& semantics) {
-    llvm::APFloat converted = apf;
-    bool ignored;
-    converted.convert(llvm::APFloat::IEEEhalf(), llvm::APFloat::rmNearestTiesToEven, &ignored);
-    return static_cast<uint16_t>(converted.bitcastToAPInt().getZExtValue());
-}
-
-llvm::APFloat createAPFloatFromBits(mlir::Type elementType, uint16_t bits) {
-    if (elementType.isF16()) {
-        return llvm::APFloat(llvm::APFloat::IEEEhalf(), llvm::APInt(16, bits));
-    } else if (elementType.isF32()) {
-        uint32_t f32Bits = static_cast<uint32_t>(bits);
-        return llvm::APFloat(llvm::APFloat::IEEEsingle(), llvm::APInt(32, f32Bits));
-    } else if (elementType.isBF16()) {
-        return llvm::APFloat(llvm::APFloat::BFloat(), llvm::APInt(16, bits));
+size_t calculateLoadStoreDataSize(mlir::Operation* op, ExecutionContext& ctx) {
+    auto operands = op->getOperands();
+    if (operands.size() >= 2) {
+        return getMemrefSize(operands[0]);
     }
-    return llvm::APFloat(0.0f);
+    return 0;
+}
+
+size_t calculateVaddDataSize(mlir::Operation* op, ExecutionContext& ctx) {
+    auto operands = op->getOperands();
+    if (operands.size() >= 3) {
+        return getMemrefSize(operands[0]);
+    }
+    return 0;
+}
+
+size_t calculateMatmulDataSize(mlir::Operation* op, ExecutionContext& ctx) {
+    auto operands = op->getOperands();
+    if (operands.size() >= 3) {
+        mlir::Value a = operands[0];
+        mlir::Value b = operands[1];
+        return getMemrefSize(a) + getMemrefSize(b);
+    }
+    return 0;
 }
 
 }
@@ -126,17 +116,19 @@ void executeHivmHirLoad(mlir::Operation* op, ExecutionContext& ctx) {
     mlir::Value src = operands[0];
     mlir::Value dst = operands[1];
     
-    llvm::outs() << "  [hivm.hir.load] GM -> UB\n";
+    size_t dataSize = getMemrefSize(dst);
+    size_t numElements = getMemrefNumElements(dst);
+    auto elementType = getElementType(dst);
+    
+    llvm::outs() << "  [hivm.hir.load] GM -> UB on MTE\n";
+    llvm::outs() << "    Data size: " << dataSize << " bytes (" << numElements << " elements)\n";
     
     if (ctx.hasMemrefData(src)) {
         auto& srcData = ctx.getMemrefData(src);
         ctx.setMemrefData(dst, srcData);
         llvm::outs() << "    Copied " << srcData.size() << " bytes\n";
     } else {
-        size_t size = getMemrefSize(dst);
-        size_t numElements = getMemrefNumElements(dst);
-        auto elementType = getElementType(dst);
-        std::vector<uint8_t> buffer(size, 0);
+        std::vector<uint8_t> buffer(dataSize, 0);
         
         llvm::outs() << "    Initialized " << numElements << " elements (test data): [";
         if (elementType.isF16()) {
@@ -174,14 +166,16 @@ void executeHivmHirVadd(mlir::Operation* op, ExecutionContext& ctx) {
     mlir::Value srcB = operands[1];
     mlir::Value dst = operands[2];
     
-    llvm::outs() << "  [hivm.hir.vadd] Vector addition\n";
+    size_t dataSize = getMemrefSize(dst);
+    size_t numElements = getMemrefNumElements(dst);
+    auto elementType = getElementType(dst);
+    
+    llvm::outs() << "  [hivm.hir.vadd] Vector addition on VEC\n";
+    llvm::outs() << "    Data size: " << dataSize << " bytes (" << numElements << " elements)\n";
     
     if (ctx.hasMemrefData(srcA) && ctx.hasMemrefData(srcB)) {
         auto& dataA = ctx.getMemrefData(srcA);
         auto& dataB = ctx.getMemrefData(srcB);
-        
-        size_t numElements = getMemrefNumElements(dst);
-        auto elementType = getElementType(dst);
         
         std::vector<uint8_t> resultData(dataA.size());
         
@@ -224,12 +218,15 @@ void executeHivmHirStore(mlir::Operation* op, ExecutionContext& ctx) {
     mlir::Value src = operands[0];
     mlir::Value dst = operands[1];
     
-    llvm::outs() << "  [hivm.hir.store] UB -> GM\n";
+    size_t dataSize = getMemrefSize(src);
+    size_t numElements = getMemrefNumElements(dst);
+    auto elementType = getElementType(dst);
+    
+    llvm::outs() << "  [hivm.hir.store] UB -> GM on MTE\n";
+    llvm::outs() << "    Data size: " << dataSize << " bytes (" << numElements << " elements)\n";
     
     if (ctx.hasMemrefData(src)) {
         auto& srcData = ctx.getMemrefData(src);
-        size_t numElements = getMemrefNumElements(dst);
-        auto elementType = getElementType(dst);
         
         llvm::outs() << "    Stored " << srcData.size() << " bytes [" << numElements << " elements]: [";
         if (elementType.isF16()) {
@@ -252,11 +249,162 @@ void executeHivmHirStore(mlir::Operation* op, ExecutionContext& ctx) {
     }
 }
 
+void executeHivmHirMatmul(mlir::Operation* op, ExecutionContext& ctx) {
+    auto operands = op->getOperands();
+    
+    if (operands.size() < 3) {
+        llvm::outs() << "  [hivm.hir.matmul] Error: insufficient operands\n";
+        return;
+    }
+    
+    mlir::Value srcA = operands[0];
+    mlir::Value srcB = operands[1];
+    mlir::Value dst = operands[2];
+    
+    auto typeA = srcA.getType();
+    auto typeB = srcB.getType();
+    auto typeDst = dst.getType();
+    
+    auto memrefA = llvm::dyn_cast<mlir::MemRefType>(typeA);
+    auto memrefB = llvm::dyn_cast<mlir::MemRefType>(typeB);
+    auto memrefDst = llvm::dyn_cast<mlir::MemRefType>(typeDst);
+    
+    size_t dataSizeA = getMemrefSize(srcA);
+    size_t dataSizeB = getMemrefSize(srcB);
+    size_t totalDataSize = dataSizeA + dataSizeB;
+    
+    llvm::outs() << "  [hivm.hir.matmul] Matrix multiplication on CUBE\n";
+    llvm::outs() << "    Matrix A: " << dataSizeA << " bytes";
+    if (memrefA) {
+        auto shape = memrefA.getShape();
+        llvm::outs() << " (";
+        for (size_t i = 0; i < shape.size(); ++i) {
+            if (i > 0) llvm::outs() << "x";
+            llvm::outs() << shape[i];
+        }
+        llvm::outs() << ")";
+    }
+    llvm::outs() << "\n";
+    
+    llvm::outs() << "    Matrix B: " << dataSizeB << " bytes";
+    if (memrefB) {
+        auto shape = memrefB.getShape();
+        llvm::outs() << " (";
+        for (size_t i = 0; i < shape.size(); ++i) {
+            if (i > 0) llvm::outs() << "x";
+            llvm::outs() << shape[i];
+        }
+        llvm::outs() << ")";
+    }
+    llvm::outs() << "\n";
+    
+    llvm::outs() << "    Total data: " << totalDataSize << " bytes\n";
+    
+    if (ctx.hasMemrefData(srcA) && ctx.hasMemrefData(srcB)) {
+        auto& dataA = ctx.getMemrefData(srcA);
+        auto& dataB = ctx.getMemrefData(srcB);
+        
+        size_t numElementsDst = getMemrefNumElements(dst);
+        auto elementType = getElementType(dst);
+        
+        std::vector<uint8_t> resultData(getMemrefSize(dst), 0);
+        
+        llvm::outs() << "    Result [" << numElementsDst << " elements]: [simulated matmul result]\n";
+        
+        ctx.setMemrefData(dst, std::move(resultData));
+    }
+}
+
+void executeHivmHirVmul(mlir::Operation* op, ExecutionContext& ctx) {
+    auto operands = op->getOperands();
+    
+    if (operands.size() < 3) {
+        llvm::outs() << "  [hivm.hir.vmul] Error: insufficient operands\n";
+        return;
+    }
+    
+    mlir::Value srcA = operands[0];
+    mlir::Value srcB = operands[1];
+    mlir::Value dst = operands[2];
+    
+    size_t dataSize = getMemrefSize(dst);
+    size_t numElements = getMemrefNumElements(dst);
+    auto elementType = getElementType(dst);
+    
+    llvm::outs() << "  [hivm.hir.vmul] Vector multiplication on VEC\n";
+    llvm::outs() << "    Data size: " << dataSize << " bytes (" << numElements << " elements)\n";
+    
+    if (ctx.hasMemrefData(srcA) && ctx.hasMemrefData(srcB)) {
+        auto& dataA = ctx.getMemrefData(srcA);
+        auto& dataB = ctx.getMemrefData(srcB);
+        
+        std::vector<uint8_t> resultData(dataA.size());
+        
+        llvm::outs() << "    Result [" << numElements << " elements]: [";
+        if (elementType.isF16()) {
+            uint16_t* ptrA = reinterpret_cast<uint16_t*>(dataA.data());
+            uint16_t* ptrB = reinterpret_cast<uint16_t*>(dataB.data());
+            uint16_t* ptrR = reinterpret_cast<uint16_t*>(resultData.data());
+            
+            for (size_t i = 0; i < numElements; ++i) {
+                llvm::APFloat a(llvm::APFloat::IEEEhalf(), llvm::APInt(16, ptrA[i]));
+                llvm::APFloat b(llvm::APFloat::IEEEhalf(), llvm::APInt(16, ptrB[i]));
+                a.multiply(b, llvm::APFloat::rmNearestTiesToEven);
+                ptrR[i] = static_cast<uint16_t>(a.bitcastToAPInt().getZExtValue());
+                
+                if (i < 4 || i >= numElements - 2) {
+                    if (i > 0 && i < numElements) llvm::outs() << ", ";
+                    llvm::SmallString<16> str;
+                    a.toString(str);
+                    llvm::outs() << str;
+                } else if (i == 4) {
+                    llvm::outs() << ", ...";
+                }
+            }
+        }
+        llvm::outs() << "]\n";
+        
+        ctx.setMemrefData(dst, std::move(resultData));
+    }
+}
+
 void registerHivmInstructions() {
+    ComponentLatencyModel mteModel;
+    mteModel.baseLatency = 10;
+    mteModel.bytesPerCycle = 128.0;
+    mteModel.dataSizeDependent = true;
+    
+    ComponentLatencyModel vecModel;
+    vecModel.baseLatency = 5;
+    vecModel.bytesPerCycle = 256.0;
+    vecModel.dataSizeDependent = true;
+    
+    ComponentLatencyModel cubeModel;
+    cubeModel.baseLatency = 20;
+    cubeModel.bytesPerCycle = 512.0;
+    cubeModel.dataSizeDependent = true;
+    
     REGISTER_INSTRUCTION_WITH_LATENCY("memref.alloc", executeMemrefAlloc, 1);
-    REGISTER_INSTRUCTION_WITH_LATENCY("hivm.hir.load", executeHivmHirLoad, 100);
-    REGISTER_INSTRUCTION_WITH_LATENCY("hivm.hir.vadd", executeHivmHirVadd, 50);
-    REGISTER_INSTRUCTION_WITH_LATENCY("hivm.hir.store", executeHivmHirStore, 100);
+    
+    REGISTER_INSTRUCTION_WITH_DATA_SIZE("hivm.hir.load", executeHivmHirLoad,
+                                        calculateLoadStoreDataSize, mteModel,
+                                        ExecutionUnitType::MTE);
+    
+    REGISTER_INSTRUCTION_WITH_DATA_SIZE("hivm.hir.store", executeHivmHirStore,
+                                        calculateLoadStoreDataSize, mteModel,
+                                        ExecutionUnitType::MTE);
+    
+    REGISTER_INSTRUCTION_WITH_DATA_SIZE("hivm.hir.vadd", executeHivmHirVadd,
+                                        calculateVaddDataSize, vecModel,
+                                        ExecutionUnitType::Vec);
+    
+    REGISTER_INSTRUCTION_WITH_DATA_SIZE("hivm.hir.vmul", executeHivmHirVmul,
+                                        calculateVaddDataSize, vecModel,
+                                        ExecutionUnitType::Vec);
+    
+    REGISTER_INSTRUCTION_WITH_DATA_SIZE("hivm.hir.matmul", executeHivmHirMatmul,
+                                        calculateMatmulDataSize, cubeModel,
+                                        ExecutionUnitType::Cube);
 }
 
 }

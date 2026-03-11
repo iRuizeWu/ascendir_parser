@@ -243,6 +243,8 @@ void InstructionExecutor::load(mlir::ModuleOp module) {
     sequence = builder.getSequence();
     
     ctx.setPC(0);
+    verboseMode = false;
+    asyncMode = true;
 }
 
 bool InstructionExecutor::executeNext() {
@@ -264,6 +266,8 @@ void InstructionExecutor::run() {
     while (!ctx.isHalted()) {
         executeNext();
     }
+    
+    waitForAllUnits();
 }
 
 void InstructionExecutor::executeInstruction(Instruction* inst) {
@@ -298,14 +302,33 @@ void InstructionExecutor::executeInstruction(Instruction* inst) {
 }
 
 uint64_t InstructionExecutor::executeNormalInstruction(Instruction* inst) {
-    uint64_t latency = 1;
     if (inst->mlirOp) {
-        latency = executeOp(inst->mlirOp);
+        ExecutionResult result = executeOp(inst->mlirOp);
+        
+        if (result.targetUnit != ExecutionUnitType::Scalar && asyncMode) {
+            uint64_t taskDuration = result.latency;
+            
+            if (verboseMode) {
+                llvm::outs() << "  [Dispatch] Task to " << executionUnitToString(result.targetUnit)
+                             << ", duration=" << taskDuration << " cycles"
+                             << ", dataSize=" << result.dataSize << " bytes\n";
+            }
+            
+            ctx.dispatchTask(result.targetUnit, taskDuration, 
+                            inst->mlirOp->getName().getStringRef().str(),
+                            inst->pc);
+            
+            advancePC();
+            return 1;
+        }
+        
+        advancePC();
+        return result.latency;
     } else if (!inst->sourceLocation.empty()) {
         handleYieldAssignment(inst);
     }
     advancePC();
-    return latency;
+    return 1;
 }
 
 void InstructionExecutor::executeJumpInstruction(Instruction* inst) {
@@ -339,11 +362,18 @@ void InstructionExecutor::executeForConditionInstruction(Instruction* inst) {
 void InstructionExecutor::executeForIncrementInstruction(Instruction* inst) {
     llvm::APInt ivVal = ctx.getIntValue(inst->forIV);
     llvm::APInt stepVal = ctx.getIntValue(inst->forStep);
-    ctx.setIntValue(inst->forIV, ivVal + stepVal);
+    
+    unsigned maxBits = std::max(ivVal.getBitWidth(), stepVal.getBitWidth());
+    llvm::APInt ivExt = (ivVal.getBitWidth() < maxBits) ? ivVal.sext(maxBits) : ivVal;
+    llvm::APInt stepExt = (stepVal.getBitWidth() < maxBits) ? stepVal.sext(maxBits) : stepVal;
+    
+    ctx.setIntValue(inst->forIV, ivExt + stepExt);
     advancePC();
 }
 
 void InstructionExecutor::executeReturnInstruction() {
+    waitForAllUnits();
+    
     if (!ctx.hasCallFrames()) {
         ctx.halt();
     } else {
@@ -376,9 +406,9 @@ void InstructionExecutor::advancePC() {
     ctx.setPC(sequence.getNextPC(ctx.getPC()));
 }
 
-uint64_t InstructionExecutor::executeOp(mlir::Operation* op) {
+ExecutionResult InstructionExecutor::executeOp(mlir::Operation* op) {
     if (!op) {
-        return 1;
+        return ExecutionResult();
     }
     
     std::string opName = op->getName().getStringRef().str();
@@ -388,13 +418,64 @@ uint64_t InstructionExecutor::executeOp(mlir::Operation* op) {
         auto* info = registry.getInstructionInfo(opName);
         if (info && info->handler) {
             info->handler(op, ctx);
-            return info->latency;
+            
+            ExecutionResult result;
+            result.targetUnit = info->targetUnit;
+            result.dataSize = 0;
+            
+            if (info->dataSizeDependent && info->dataSizeCalculator) {
+                result.dataSize = info->dataSizeCalculator(op, ctx);
+                result.latency = info->calculateLatency(result.dataSize);
+            } else {
+                result.latency = info->latency;
+            }
+            
+            result.isAsync = (result.targetUnit != ExecutionUnitType::Scalar);
+            
+            return result;
         }
     } else {
         llvm::errs() << "Unknown operation: " << opName << "\n";
         ctx.halt();
     }
-    return 1;
+    return ExecutionResult();
+}
+
+void InstructionExecutor::waitForAllUnits() {
+    while (!ctx.allUnitsIdle()) {
+        uint64_t nextCompletion = ctx.getEarliestCompletionCycle();
+        ctx.setCycle(nextCompletion);
+        ctx.updateExecutionUnits();
+        
+        if (verboseMode) {
+            printTaskStatus();
+        }
+    }
+}
+
+void InstructionExecutor::waitForUnit(ExecutionUnitType unit) {
+    if (ctx.isUnitBusy(unit)) {
+        uint64_t busyUntil = ctx.getUnitBusyUntil(unit);
+        ctx.setCycle(busyUntil);
+        ctx.updateExecutionUnits();
+        
+        if (verboseMode) {
+            llvm::outs() << "  [Wait] Waited for " << executionUnitToString(unit)
+                         << " until cycle " << busyUntil << "\n";
+        }
+    }
+}
+
+void InstructionExecutor::printTaskStatus() {
+    const auto& tasks = ctx.getActiveTasks();
+    if (!tasks.empty()) {
+        llvm::outs() << "  [Tasks] Active tasks at cycle " << ctx.getCycle() << ":\n";
+        for (const auto& task : tasks) {
+            llvm::outs() << "    - " << task.opName 
+                         << " on " << executionUnitToString(task.unit)
+                         << " (complete at " << task.completeCycle() << ")\n";
+        }
+    }
 }
 
 }

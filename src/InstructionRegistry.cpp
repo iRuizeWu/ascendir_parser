@@ -2,8 +2,24 @@
 
 namespace ascendir_parser {
 
-void InstructionRegistry::registerHandler(const std::string& opName, ExecuteFunc handler, uint64_t latency) {
-    instructions[opName] = InstructionInfo(handler, latency);
+void InstructionRegistry::registerHandler(const std::string& opName, ExecuteFunc handler, 
+                                          uint64_t latency, ExecutionUnitType unit) {
+    InstructionInfo info(handler, latency, unit);
+    instructions[opName] = info;
+}
+
+void InstructionRegistry::registerHandlerWithDataSize(const std::string& opName, ExecuteFunc handler,
+                                                      DataSizeFunc dataSizeFunc,
+                                                      const ComponentLatencyModel& model,
+                                                      ExecutionUnitType unit) {
+    InstructionInfo info;
+    info.handler = handler;
+    info.targetUnit = unit;
+    info.dataSizeDependent = true;
+    info.dataSizeCalculator = dataSizeFunc;
+    info.latencyModel = model;
+    info.latency = model.baseLatency;
+    instructions[opName] = info;
 }
 
 InstructionInfo* InstructionRegistry::getInstructionInfo(const std::string& opName) {

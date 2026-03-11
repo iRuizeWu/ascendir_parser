@@ -2,6 +2,7 @@
 
 #include "InstructionSequence.h"
 #include "ExecutionContext.h"
+#include "ExecutionUnit.h"
 #include "mlir/IR/BuiltinOps.h"
 #include "mlir/Dialect/SCF/IR/SCF.h"
 
@@ -38,9 +39,21 @@ private:
     void flattenSCFYield(mlir::Operation* yieldOp);
 };
 
+struct ExecutionResult {
+    uint64_t latency;
+    ExecutionUnitType targetUnit;
+    bool isAsync;
+    size_t dataSize;
+    
+    ExecutionResult() : latency(1), targetUnit(ExecutionUnitType::Scalar), 
+                        isAsync(false), dataSize(0) {}
+};
+
 class InstructionExecutor {
     InstructionSequence sequence;
     ExecutionContext ctx;
+    bool verboseMode;
+    bool asyncMode;
     
 public:
     void load(mlir::ModuleOp module);
@@ -53,9 +66,12 @@ public:
     ExecutionContext& getContext() { return ctx; }
     InstructionSequence& getSequence() { return sequence; }
     
+    void setVerbose(bool verbose) { verboseMode = verbose; }
+    void setAsyncMode(bool async) { asyncMode = async; }
+    
 private:
     void executeInstruction(Instruction* inst);
-    uint64_t executeOp(mlir::Operation* op);
+    ExecutionResult executeOp(mlir::Operation* op);
     
     uint64_t executeNormalInstruction(Instruction* inst);
     void executeJumpInstruction(Instruction* inst);
@@ -68,6 +84,10 @@ private:
     void handleYieldAssignment(Instruction* inst);
     void copyValue(mlir::Value dest, mlir::Value src);
     void advancePC();
+    
+    void waitForAllUnits();
+    void waitForUnit(ExecutionUnitType unit);
+    void printTaskStatus();
 };
 
 }

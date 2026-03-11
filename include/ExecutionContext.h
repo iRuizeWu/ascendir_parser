@@ -1,11 +1,13 @@
 #pragma once
 
+#include "ExecutionUnit.h"
 #include "mlir/IR/Value.h"
 #include "llvm/ADT/APInt.h"
 #include "llvm/ADT/APFloat.h"
 #include <map>
 #include <vector>
 #include <cstdint>
+#include <queue>
 
 namespace ascendir_parser {
 
@@ -25,8 +27,21 @@ class ExecutionContext {
     };
     std::vector<CallFrame> callStack;
     
+    std::map<ExecutionUnitType, ExecutionUnit> executionUnits;
+    std::vector<PendingTask> activeTasks;
+    uint64_t nextTaskId;
+    
+    bool waitForUnits;
+    ExecutionUnitType waitingForUnit;
+    
 public:
-    ExecutionContext() : pc(0), halted(false), cycle(0) {}
+    ExecutionContext() : pc(0), halted(false), cycle(0), nextTaskId(0), 
+                         waitForUnits(false), waitingForUnit(ExecutionUnitType::Scalar) {
+        executionUnits.emplace(ExecutionUnitType::Scalar, ExecutionUnit(ExecutionUnitType::Scalar));
+        executionUnits.emplace(ExecutionUnitType::MTE, ExecutionUnit(ExecutionUnitType::MTE));
+        executionUnits.emplace(ExecutionUnitType::Cube, ExecutionUnit(ExecutionUnitType::Cube));
+        executionUnits.emplace(ExecutionUnitType::Vec, ExecutionUnit(ExecutionUnitType::Vec));
+    }
     
     void setIntValue(mlir::Value v, llvm::APInt val);
     void setFloatValue(mlir::Value v, llvm::APFloat val);
@@ -49,10 +64,45 @@ public:
     
     uint64_t getCycle() const { return cycle; }
     void advanceCycle(uint64_t cycles) { cycle += cycles; }
+    void setCycle(uint64_t c) { cycle = c; }
     
     void pushCallFrame(uint64_t returnPC);
     uint64_t popCallFrame();
     bool hasCallFrames() const { return !callStack.empty(); }
+    
+    ExecutionUnit& getExecutionUnit(ExecutionUnitType type) {
+        return executionUnits.at(type);
+    }
+    
+    uint64_t dispatchTask(ExecutionUnitType unit, uint64_t duration, 
+                          const std::string& opName, uint64_t pc);
+    
+    void updateExecutionUnits();
+    
+    bool isUnitBusy(ExecutionUnitType unit) const;
+    
+    uint64_t getUnitBusyUntil(ExecutionUnitType unit) const;
+    
+    void waitForUnit(ExecutionUnitType unit) {
+        waitForUnits = true;
+        waitingForUnit = unit;
+    }
+    
+    void clearWait() {
+        waitForUnits = false;
+    }
+    
+    bool shouldWait() const { return waitForUnits; }
+    
+    ExecutionUnitType getWaitingUnit() const { return waitingForUnit; }
+    
+    bool allUnitsIdle() const;
+    
+    uint64_t getEarliestCompletionCycle() const;
+    
+    void advanceToCompletion(ExecutionUnitType unit);
+    
+    const std::vector<PendingTask>& getActiveTasks() const { return activeTasks; }
     
     void dump();
 };

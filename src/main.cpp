@@ -2,6 +2,7 @@
 #include "InstructionExecutor.h"
 #include "InstructionRegistry.h"
 #include "Instruction.h"
+#include "ExecutionUnit.h"
 #include "llvm/Support/raw_ostream.h"
 #include <iostream>
 #include <string>
@@ -17,6 +18,7 @@ void printUsage(const char *progName) {
             << "  --simulate  Execute the MLIR program\n"
             << "  --dump-sequence  Dump instruction sequence before execution\n"
             << "  --verbose   Show execution details\n"
+            << "  --sync      Run in synchronous mode (wait for each operation)\n"
             << "  --help      Show this help message\n";
 }
 
@@ -28,6 +30,7 @@ int main(int argc, char **argv) {
   bool simulateMode = false;
   bool dumpSequenceMode = false;
   bool verboseMode = false;
+  bool syncMode = false;
   std::string inputFile;
 
   for (int i = 1; i < argc; ++i) {
@@ -46,6 +49,8 @@ int main(int argc, char **argv) {
       dumpSequenceMode = true;
     } else if (arg == "--verbose") {
       verboseMode = true;
+    } else if (arg == "--sync") {
+      syncMode = true;
     } else if (arg == "--help") {
       printUsage(argv[0]);
       return 0;
@@ -92,6 +97,8 @@ int main(int argc, char **argv) {
     
     ascendir_parser::InstructionExecutor executor;
     executor.load(*module);
+    executor.setVerbose(verboseMode);
+    executor.setAsyncMode(!syncMode);
     
     if (dumpSequenceMode) {
       executor.getSequence().dump();
@@ -99,7 +106,9 @@ int main(int argc, char **argv) {
     }
     
     if (verboseMode) {
-      std::cout << "Starting simulation...\n\n";
+      std::cout << "Starting simulation (mode: " << (syncMode ? "synchronous" : "asynchronous") << ")...\n\n";
+      
+      uint64_t lastCycle = 0;
       while (!executor.isHalted()) {
         uint64_t pc = executor.getCurrentPC();
         uint64_t startCycle = executor.getContext().getCycle();
@@ -107,19 +116,43 @@ int main(int argc, char **argv) {
         const ascendir_parser::Instruction* inst = seq.getInstructionByPCConst(pc);
         std::string desc = seq.getInstructionDescription(pc);
         
+        if (startCycle > lastCycle) {
+          std::cout << "[cycle=" << startCycle << "] Time advanced " << (startCycle - lastCycle) << " cycles\n";
+        }
+        
         std::cout << "[cycle=" << startCycle << "] PC " << pc << ": " << desc << "\n";
         
         executor.executeNext();
         
         uint64_t endCycle = executor.getContext().getCycle();
-        std::cout << "[cycle=" << endCycle << "] retired\n\n";
+        if (endCycle > startCycle) {
+          std::cout << "[cycle=" << endCycle << "] Scalar advanced " << (endCycle - startCycle) << " cycles\n";
+        }
+        
+        const auto& tasks = executor.getContext().getActiveTasks();
+        if (!tasks.empty()) {
+          std::cout << "  Active tasks:\n";
+          for (const auto& task : tasks) {
+            std::cout << "    - " << task.opName 
+                      << " on " << ascendir_parser::executionUnitToString(task.unit)
+                      << " (complete at cycle " << task.completeCycle() << ")\n";
+          }
+        }
+        
+        std::cout << "\n";
+        lastCycle = endCycle;
       }
+      
       std::cout << "Simulation completed.\n";
       std::cout << "Final PC: " << executor.getCurrentPC() << "\n";
       std::cout << "Total cycles: " << executor.getContext().getCycle() << "\n";
+      
+      std::cout << "\n=== Execution Unit Statistics ===\n";
+      std::cout << "All units idle: " << (executor.getContext().allUnitsIdle() ? "yes" : "no") << "\n";
     } else {
       executor.run();
       std::cout << "Simulation completed.\n";
+      std::cout << "Total cycles: " << executor.getContext().getCycle() << "\n";
     }
   } else {
     parser.printModule(*module);

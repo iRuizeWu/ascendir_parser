@@ -94,6 +94,31 @@
    - `[cycle=X] retired` - 执行完成
    - `Total cycles: N` - 总耗时统计
 
+### 阶段7：多组件并行执行 ✅
+
+1. **执行单元类型**
+   - [ExecutionUnit.h](../include/ExecutionUnit.h) - 执行单元定义
+   - Scalar：标量单元，负责调度和标量运算
+   - MTE：内存传输引擎，处理load/store
+   - Cube：矩阵计算单元，处理matmul
+   - Vec：向量计算单元，处理vadd/vmul
+
+2. **组件延迟模型**
+   - ComponentLatencyModel：支持数据大小相关延迟
+   - MTE: base=10, 128 bytes/cycle
+   - Vec: base=5, 256 bytes/cycle
+   - Cube: base=20, 512 bytes/cycle
+
+3. **异步任务管理**
+   - PendingTask：待处理任务结构
+   - 任务分发和完成跟踪
+   - 同步等待机制
+
+4. **执行模式**
+   - 异步模式（默认）：Scalar分发任务后继续执行
+   - 同步模式：每条指令等待完成后才继续
+   - `--sync` 命令行选项
+
 ## 测试验证
 
 所有测试用例均已通过：
@@ -110,6 +135,9 @@
 - ✅ [test_nested_if.mlir](../test/test_nested_if.mlir) - 嵌套条件测试
 - ✅ [test_call.mlir](../test/test_call.mlir) - 函数调用测试
 - ✅ [test_hivm_basic.mlir](../test/test_hivm_basic.mlir) - HIVM方言测试
+- ✅ [test_multi_component.mlir](../test/test_multi_component.mlir) - 多组件协作测试
+- ✅ [test_matmul_pipeline.mlir](../test/test_matmul_pipeline.mlir) - 矩阵乘法流水线测试
+- ✅ [test_pipeline.mlir](../test/test_pipeline.mlir) - 完整流水线测试
 
 ## 架构特点
 
@@ -134,6 +162,18 @@
 - scf.if → IfCondition + Jump
 - 支持嵌套控制流
 
+### 5. 多组件并行执行
+- Scalar：主调度单元，负责标量运算和任务分发
+- MTE：内存传输引擎，处理load/store
+- Cube：矩阵计算单元，处理matmul
+- Vec：向量计算单元，处理vadd/vmul
+- 异步任务分发和同步等待机制
+
+### 6. 数据大小相关延迟
+- 根据数据量动态计算延迟
+- 支持不同组件的吞吐量配置
+- 真实模拟NPU硬件行为
+
 ## 使用示例
 
 ```bash
@@ -141,28 +181,57 @@
 cd /home/ruize/code/github/ascendir_parser
 cmake --build build -j4
 
-# 运行仿真（含cycle耗时）
-./build/src/ascendir_parser test/test_hivm_basic.mlir --simulate --verbose
+# 运行仿真（异步模式，含详细输出）
+./build/src/ascendir_parser test/test_pipeline.mlir --simulate --verbose
+
+# 运行仿真（同步模式，对比）
+./build/src/ascendir_parser test/test_pipeline.mlir --simulate --verbose --sync
 ```
 
-输出示例：
+### 异步模式输出示例
+
 ```
-Starting simulation...
+Starting simulation (mode: asynchronous)...
 
-[cycle=0] PC 0: Normal: %alloc = memref.alloc() : memref<16xf16>
-  [memref.alloc] Allocated 32 bytes for memref<16xf16>
-[cycle=1] retired
+[cycle=0] PC 0: Normal: %ubA = memref.alloc() : memref<128xf16>
+  [memref.alloc] Allocated 256 bytes for memref<128xf16>
+[cycle=1] Scalar advanced 1 cycles
 
-[cycle=1] PC 1: Normal: "hivm.hir.load"(%arg0, %alloc) : ...
-  [hivm.hir.load] GM -> UB
-    Initialized 16 elements (test data): [0, 1, 2, 3, ..., 14, 15]
-[cycle=101] retired
+[cycle=1] PC 1: Normal: "hivm.hir.load"(%arg0, %ubA) : ...
+  [hivm.hir.load] GM -> UB on MTE
+    Data size: 256 bytes (128 elements)
+  [Dispatch] Task to MTE, duration=10 cycles, dataSize=256 bytes
+  Active tasks:
+    - hivm.hir.load on MTE (complete at cycle 11)
 
 ...
 
 Simulation completed.
-Final PC: 8
-Total cycles: 354
+Final PC: 12
+Total cycles: 56
+All units idle: yes
+```
+
+### 同步模式输出示例
+
+```
+Starting simulation (mode: synchronous)...
+
+[cycle=0] PC 0: Normal: %ubA = memref.alloc() : memref<128xf16>
+  [memref.alloc] Allocated 256 bytes for memref<128xf16>
+[cycle=1] Scalar advanced 1 cycles
+
+[cycle=1] PC 1: Normal: "hivm.hir.load"(%arg0, %ubA) : ...
+  [hivm.hir.load] GM -> UB on MTE
+    Data size: 256 bytes (128 elements)
+[cycle=11] Scalar advanced 10 cycles
+
+...
+
+Simulation completed.
+Final PC: 12
+Total cycles: 326
+All units idle: yes
 ```
 
 ## 技术亮点
@@ -172,6 +241,9 @@ Total cycles: 354
 3. **类型安全** - 正确处理MLIR类型系统
 4. **渐进式实现** - 分阶段实现，降低开发风险
 5. **指令耗时模拟** - 支持cycle级别的性能分析
+6. **多组件并行执行** - 真实模拟NPU硬件行为
+7. **数据大小相关延迟** - 根据数据量动态计算延迟
+8. **异步/同步模式切换** - 灵活的执行模式选择
 
 ## 性能考虑
 
@@ -180,12 +252,14 @@ Total cycles: 354
 - 指令序列使用vector存储，支持快速索引
 - PC到索引的映射，支持O(1)查找
 - 指令耗时模拟，支持性能分析
+- 多组件并行执行，提高吞吐量
+- 数据大小相关延迟，真实模拟硬件
 
 未来可以进一步优化：
 - 指令缓存
 - JIT编译
-- 并行执行
-- 流水线模拟
+- 依赖分析和乱序执行
+- 更细粒度的流水线模拟
 
 ## 文档
 
@@ -194,4 +268,13 @@ Total cycles: 354
 
 ## 总结
 
-MLIR仿真器已完成全部6个阶段的开发，支持arith、func、scf、memref和hivm dialect。系统架构清晰，易于扩展，支持控制流展平和指令耗时模拟，为后续的指令发射优化提供了良好的基础。
+MLIR仿真器已完成全部7个阶段的开发，支持arith、func、scf、memref和hivm dialect。系统架构清晰，易于扩展，支持控制流展平、指令耗时模拟和多组件并行执行，为后续的指令发射优化提供了良好的基础。
+
+### 核心能力
+
+1. **PC驱动执行** - 简单清晰的执行模型
+2. **控制流展平** - 支持scf.for和scf.if
+3. **指令耗时模拟** - cycle级别性能分析
+4. **多组件并行执行** - Scalar、MTE、Cube、Vec组件协作
+5. **数据大小相关延迟** - 真实模拟NPU硬件行为
+6. **灵活的执行模式** - 异步/同步模式切换

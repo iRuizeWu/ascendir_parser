@@ -2,7 +2,7 @@
 
 ## 概述
 
-MLIR仿真器是一个能够逐条执行MLIR指令的工具，支持arith、func、scf、memref和hivm dialect，并提供指令耗时模拟功能。
+MLIR仿真器是一个能够逐条执行MLIR指令的工具，支持arith、func、scf、memref和hivm dialect，并提供指令耗时模拟和多组件并行执行功能。
 
 ## 编译
 
@@ -33,6 +33,20 @@ cmake --build build -j4
 
 ```bash
 ./build/src/ascendir_parser test.mlir --simulate --verbose
+```
+
+### 异步模式（默认）
+
+```bash
+# 异步模式：Scalar分发任务后继续执行，其他组件并行工作
+./build/src/ascendir_parser test.mlir --simulate --verbose
+```
+
+### 同步模式
+
+```bash
+# 同步模式：每条指令等待完成后才继续
+./build/src/ascendir_parser test.mlir --simulate --verbose --sync
 ```
 
 ### 组合使用
@@ -82,64 +96,88 @@ cmake --build build -j4
 
 ### hivm dialect
 
-| 操作 | 说明 | 耗时 (cycles) |
-|------|------|---------------|
-| `hivm.hir.load` | GM到UB数据加载 | 100 |
-| `hivm.hir.vadd` | 向量加法 | 50 |
-| `hivm.hir.store` | UB到GM数据存储 | 100 |
+| 操作 | 说明 | 组件 | 延迟模型 |
+|------|------|------|----------|
+| `hivm.hir.load` | GM到UB数据加载 | MTE | base=10, 128 bytes/cycle |
+| `hivm.hir.vadd` | 向量加法 | Vec | base=5, 256 bytes/cycle |
+| `hivm.hir.vmul` | 向量乘法 | Vec | base=5, 256 bytes/cycle |
+| `hivm.hir.matmul` | 矩阵乘法 | Cube | base=20, 512 bytes/cycle |
+| `hivm.hir.store` | UB到GM数据存储 | MTE | base=10, 128 bytes/cycle |
+
+**延迟计算公式**: `latency = max(baseLatency, dataSize / bytesPerCycle)`
+
+**示例**:
+- `memref<128xf16>` 的 load: dataSize=256 bytes, latency=max(10, 256/128)=10 cycles
+- `memref<64x64xf16>` 的 matmul: dataSize=16384 bytes, latency=max(20, 16384/512)=32 cycles
 
 ## 输出格式
 
-### 详细模式输出
+### 异步模式输出
 
 ```
-Starting simulation...
+Starting simulation (mode: asynchronous)...
 
-[cycle=0] PC 0: Normal: %alloc = memref.alloc() : memref<16xf16>
-  [memref.alloc] Allocated 32 bytes for memref<16xf16>
-[cycle=1] retired
+[cycle=0] PC 0: Normal: %ubA = memref.alloc() : memref<128xf16>
+  [memref.alloc] Allocated 256 bytes for memref<128xf16>
+[cycle=1] Scalar advanced 1 cycles
 
-[cycle=1] PC 1: Normal: "hivm.hir.load"(%arg0, %alloc) : (memref<16xf16>, memref<16xf16>) -> ()
-  [hivm.hir.load] GM -> UB
-    Initialized 16 elements (test data): [0, 1, 2, 3, ..., 14, 15]
-[cycle=101] retired
+[cycle=1] PC 1: Normal: "hivm.hir.load"(%arg0, %ubA) : ...
+  [hivm.hir.load] GM -> UB on MTE
+    Data size: 256 bytes (128 elements)
+    Initialized 128 elements (test data): [0, 1, 2, 3, ..., 126, 127]
+  [Dispatch] Task to MTE, duration=10 cycles, dataSize=256 bytes
+  Active tasks:
+    - hivm.hir.load on MTE (complete at cycle 11)
 
-[cycle=101] PC 2: Normal: %alloc_0 = memref.alloc() : memref<16xf16>
-  [memref.alloc] Allocated 32 bytes for memref<16xf16>
-[cycle=102] retired
+[cycle=2] PC 2: Normal: %ubB = memref.alloc() : memref<128xf16>
+  [memref.alloc] Allocated 256 bytes for memref<128xf16>
 
-[cycle=102] PC 3: Normal: "hivm.hir.load"(%arg1, %alloc_0) : ...
-  [hivm.hir.load] GM -> UB
-    Initialized 16 elements (test data): [0, 1, 2, 3, ..., 14, 15]
-[cycle=202] retired
+[cycle=3] PC 3: Normal: "hivm.hir.load"(%arg1, %ubB) : ...
+  [hivm.hir.load] GM -> UB on MTE
+    Data size: 256 bytes (128 elements)
+  [Dispatch] Task to MTE, duration=10 cycles, dataSize=256 bytes
+  Active tasks:
+    - hivm.hir.load on MTE (complete at cycle 11)
+    - hivm.hir.load on MTE (complete at cycle 13)
 
-[cycle=202] PC 4: Normal: %alloc_1 = memref.alloc() : memref<16xf16>
-  [memref.alloc] Allocated 32 bytes for memref<16xf16>
-[cycle=203] retired
-
-[cycle=203] PC 5: Normal: "hivm.hir.vadd"(%alloc, %alloc_0, %alloc_1) : ...
-  [hivm.hir.vadd] Vector addition
-    Result [16 elements]: [0, 2, 4, 6, ..., 28, 30]
-[cycle=253] retired
-
-[cycle=253] PC 6: Normal: "hivm.hir.store"(%alloc_1, %arg2) : ...
-  [hivm.hir.store] UB -> GM
-    Stored 32 bytes [16 elements]: [0, 2, 4, 6, ..., 28, 30]
-[cycle=353] retired
-
-[cycle=353] PC 7: Normal: func.return
-[cycle=354] retired
+...
 
 Simulation completed.
 Final PC: 8
-Total cycles: 354
+Total cycles: 56
+All units idle: yes
+```
+
+### 同步模式输出
+
+```
+Starting simulation (mode: synchronous)...
+
+[cycle=0] PC 0: Normal: %ubA = memref.alloc() : memref<128xf16>
+  [memref.alloc] Allocated 256 bytes for memref<128xf16>
+[cycle=1] Scalar advanced 1 cycles
+
+[cycle=1] PC 1: Normal: "hivm.hir.load"(%arg0, %ubA) : ...
+  [hivm.hir.load] GM -> UB on MTE
+    Data size: 256 bytes (128 elements)
+[cycle=11] Scalar advanced 10 cycles
+
+...
+
+Simulation completed.
+Final PC: 8
+Total cycles: 326
+All units idle: yes
 ```
 
 ### 输出说明
 
 - `[cycle=X] PC Y: ...` - 在cycle X时开始执行PC Y处的指令
-- `[cycle=X] retired` - 在cycle X时指令执行完成
+- `[Dispatch] Task to <unit>` - 任务分发到对应组件
+- `Active tasks:` - 当前活跃的后台任务
+- `complete at cycle X` - 任务完成时间
 - `Total cycles: N` - 总耗时统计
+- `All units idle: yes/no` - 所有组件是否空闲
 
 ## 测试示例
 
@@ -170,26 +208,73 @@ Total cycles: 354
 ### test_hivm_basic.mlir
 HIVM方言测试（向量加法）
 
+### test_multi_component.mlir
+多组件协作测试（MTE + Vec）
+
+### test_matmul_pipeline.mlir
+矩阵乘法流水线测试（MTE + Cube + Vec）
+
+### test_pipeline.mlir
+完整流水线测试（load + vmul + vadd + store）
+
 ## 架构
 
-仿真器采用PC驱动的执行模型：
+仿真器采用PC驱动的执行模型，支持多组件并行执行：
 
 1. **InstructionSequence** - 线性指令序列，支持PC管理
-2. **ExecutionContext** - 运行时状态管理（值存储、PC、调用栈、cycle计数）
+2. **ExecutionContext** - 运行时状态管理（值存储、PC、调用栈、cycle计数、多组件管理）
 3. **InstructionExecutor** - PC驱动的执行引擎
 4. **InstructionRegistry** - 指令注册表，支持动态扩展和耗时配置
+5. **ExecutionUnit** - 执行单元（Scalar、MTE、Cube、Vec）
+
+### 多组件执行模型
+
+```
+┌─────────────────────────────────────────┐
+│         Scalar (主调度单元)              │
+│  - PC驱动执行                           │
+│  - 标量运算：直接执行                   │
+│  - 其他指令：分发到对应组件             │
+└─────────────────────────────────────────┘
+         ↓ dispatch    ↓ dispatch    ↓ dispatch
+┌─────────────┐ ┌─────────────┐ ┌─────────────┐
+│     MTE     │ │    Cube     │ │     Vec     │
+│ 数据搬运    │ │  矩阵乘法   │ │  向量运算   │
+│ load/store  │ │  matmul     │ │ vadd/vmul   │
+└─────────────┘ └─────────────┘ └─────────────┘
+```
 
 ## 扩展新指令
 
 在 `src/Instructions/` 目录下添加新的指令处理器：
 
 ```cpp
+// 1. 固定延迟指令（Scalar组件）
 void executeMyOp(mlir::Operation* op, ExecutionContext& ctx) {
     // 实现指令逻辑
 }
-
-// 注册指令（含耗时）
 REGISTER_INSTRUCTION_WITH_LATENCY("mydialect.myop", executeMyOp, 10);
+
+// 2. 指定组件的指令
+void executeVecOp(mlir::Operation* op, ExecutionContext& ctx) {
+    // 实现向量运算
+}
+REGISTER_INSTRUCTION_ON_UNIT("mydialect.vecop", executeVecOp, 5, ExecutionUnitType::Vec);
+
+// 3. 数据大小相关延迟的指令
+size_t calculateDataSize(mlir::Operation* op, ExecutionContext& ctx) {
+    // 计算数据大小
+    return dataSize;
+}
+
+ComponentLatencyModel model;
+model.baseLatency = 10;
+model.bytesPerCycle = 256.0;
+model.dataSizeDependent = true;
+
+REGISTER_INSTRUCTION_WITH_DATA_SIZE("mydialect.mteop", executeMteOp,
+                                    calculateDataSize, model,
+                                    ExecutionUnitType::MTE);
 ```
 
 ## 下一步计划

@@ -2,6 +2,7 @@
 #include "ExecutionContext.h"
 #include "mlir/Dialect/Arith/IR/Arith.h"
 #include "llvm/Support/raw_ostream.h"
+#include <algorithm>
 
 namespace ascendir_parser {
 
@@ -20,29 +21,89 @@ void executeArithAddi(mlir::Operation* op, ExecutionContext& ctx) {
     auto addiOp = llvm::cast<mlir::arith::AddIOp>(op);
     auto lhs = ctx.getIntValue(addiOp.getLhs());
     auto rhs = ctx.getIntValue(addiOp.getRhs());
-    ctx.setIntValue(addiOp.getResult(), lhs + rhs);
+    
+    auto resultType = addiOp.getResult().getType();
+    unsigned width = 64;
+    if (auto intType = llvm::dyn_cast<mlir::IntegerType>(resultType)) {
+        width = intType.getWidth();
+    }
+    
+    unsigned maxBits = std::max({width, lhs.getBitWidth(), rhs.getBitWidth()});
+    llvm::APInt lhsExt = (lhs.getBitWidth() < maxBits) ? lhs.sext(maxBits) : lhs;
+    llvm::APInt rhsExt = (rhs.getBitWidth() < maxBits) ? rhs.sext(maxBits) : rhs;
+    llvm::APInt result = lhsExt + rhsExt;
+    
+    if (result.getBitWidth() != width) {
+        result = result.trunc(width);
+    }
+    ctx.setIntValue(addiOp.getResult(), result);
 }
 
 void executeArithSubi(mlir::Operation* op, ExecutionContext& ctx) {
     auto subiOp = llvm::cast<mlir::arith::SubIOp>(op);
     auto lhs = ctx.getIntValue(subiOp.getLhs());
     auto rhs = ctx.getIntValue(subiOp.getRhs());
-    ctx.setIntValue(subiOp.getResult(), lhs - rhs);
+    
+    auto resultType = subiOp.getResult().getType();
+    unsigned width = 64;
+    if (auto intType = llvm::dyn_cast<mlir::IntegerType>(resultType)) {
+        width = intType.getWidth();
+    }
+    
+    unsigned maxBits = std::max({width, lhs.getBitWidth(), rhs.getBitWidth()});
+    llvm::APInt lhsExt = (lhs.getBitWidth() < maxBits) ? lhs.sext(maxBits) : lhs;
+    llvm::APInt rhsExt = (rhs.getBitWidth() < maxBits) ? rhs.sext(maxBits) : rhs;
+    llvm::APInt result = lhsExt - rhsExt;
+    
+    if (result.getBitWidth() != width) {
+        result = result.trunc(width);
+    }
+    ctx.setIntValue(subiOp.getResult(), result);
 }
 
 void executeArithMuli(mlir::Operation* op, ExecutionContext& ctx) {
     auto muliOp = llvm::cast<mlir::arith::MulIOp>(op);
     auto lhs = ctx.getIntValue(muliOp.getLhs());
     auto rhs = ctx.getIntValue(muliOp.getRhs());
-    ctx.setIntValue(muliOp.getResult(), lhs * rhs);
+    
+    auto resultType = muliOp.getResult().getType();
+    unsigned width = 64;
+    if (auto intType = llvm::dyn_cast<mlir::IntegerType>(resultType)) {
+        width = intType.getWidth();
+    }
+    
+    unsigned maxBits = std::max({width, lhs.getBitWidth(), rhs.getBitWidth()});
+    llvm::APInt lhsExt = (lhs.getBitWidth() < maxBits) ? lhs.sext(maxBits) : lhs;
+    llvm::APInt rhsExt = (rhs.getBitWidth() < maxBits) ? rhs.sext(maxBits) : rhs;
+    llvm::APInt result = lhsExt * rhsExt;
+    
+    if (result.getBitWidth() != width) {
+        result = result.trunc(width);
+    }
+    ctx.setIntValue(muliOp.getResult(), result);
 }
 
 void executeArithDivi(mlir::Operation* op, ExecutionContext& ctx) {
     auto diviOp = llvm::cast<mlir::arith::DivSIOp>(op);
     auto lhs = ctx.getIntValue(diviOp.getLhs());
     auto rhs = ctx.getIntValue(diviOp.getRhs());
-    if (rhs != 0) {
-        ctx.setIntValue(diviOp.getResult(), lhs.sdiv(rhs));
+    
+    auto resultType = diviOp.getResult().getType();
+    unsigned width = 64;
+    if (auto intType = llvm::dyn_cast<mlir::IntegerType>(resultType)) {
+        width = intType.getWidth();
+    }
+    
+    unsigned maxBits = std::max({width, lhs.getBitWidth(), rhs.getBitWidth()});
+    llvm::APInt lhsExt = (lhs.getBitWidth() < maxBits) ? lhs.sext(maxBits) : lhs;
+    llvm::APInt rhsExt = (rhs.getBitWidth() < maxBits) ? rhs.sext(maxBits) : rhs;
+    
+    if (rhsExt != 0) {
+        llvm::APInt result = lhsExt.sdiv(rhsExt);
+        if (result.getBitWidth() != width) {
+            result = result.trunc(width);
+        }
+        ctx.setIntValue(diviOp.getResult(), result);
     }
 }
 
@@ -80,37 +141,41 @@ void executeArithCmpi(mlir::Operation* op, ExecutionContext& ctx) {
     auto rhs = ctx.getIntValue(cmpiOp.getRhs());
     auto predicate = cmpiOp.getPredicate();
     
+    unsigned maxBits = std::max(lhs.getBitWidth(), rhs.getBitWidth());
+    llvm::APInt lhsExt = (lhs.getBitWidth() < maxBits) ? lhs.sext(maxBits) : lhs;
+    llvm::APInt rhsExt = (rhs.getBitWidth() < maxBits) ? rhs.sext(maxBits) : rhs;
+    
     bool result = false;
     switch (predicate) {
         case mlir::arith::CmpIPredicate::eq:
-            result = lhs == rhs;
+            result = lhsExt == rhsExt;
             break;
         case mlir::arith::CmpIPredicate::ne:
-            result = lhs != rhs;
+            result = lhsExt != rhsExt;
             break;
         case mlir::arith::CmpIPredicate::slt:
-            result = lhs.slt(rhs);
+            result = lhsExt.slt(rhsExt);
             break;
         case mlir::arith::CmpIPredicate::sle:
-            result = lhs.sle(rhs);
+            result = lhsExt.sle(rhsExt);
             break;
         case mlir::arith::CmpIPredicate::sgt:
-            result = lhs.sgt(rhs);
+            result = lhsExt.sgt(rhsExt);
             break;
         case mlir::arith::CmpIPredicate::sge:
-            result = lhs.sge(rhs);
+            result = lhsExt.sge(rhsExt);
             break;
         case mlir::arith::CmpIPredicate::ult:
-            result = lhs.ult(rhs);
+            result = lhsExt.ult(rhsExt);
             break;
         case mlir::arith::CmpIPredicate::ule:
-            result = lhs.ule(rhs);
+            result = lhsExt.ule(rhsExt);
             break;
         case mlir::arith::CmpIPredicate::ugt:
-            result = lhs.ugt(rhs);
+            result = lhsExt.ugt(rhsExt);
             break;
         case mlir::arith::CmpIPredicate::uge:
-            result = lhs.uge(rhs);
+            result = lhsExt.uge(rhsExt);
             break;
     }
     
