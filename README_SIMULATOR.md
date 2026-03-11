@@ -13,7 +13,9 @@ cd /home/ruize/code/github/ascendir_parser
 rm -rf build/*
 cmake -G Ninja -S . -B build \
     -DLLVM_DIR=/home/ruize/code/github/AscendNPU-IR/build \
-    -DMLIR_DIR=/home/ruize/code/github/AscendNPU-IR/build/lib/cmake/mlir
+    -DMLIR_DIR=/home/ruize/code/github/AscendNPU-IR/build/lib/cmake/mlir \
+    -DBISHENGIR_DIR=/home/ruize/code/github/AscendNPU-IR/build \
+    -DBISHENGIR_SOURCE_DIR=/home/ruize/code/github/AscendNPU-IR
 cmake --build build -j4
 ```
 
@@ -42,11 +44,11 @@ cmake --build build -j4
 ## 已实现功能
 
 ### ✅ 阶段1：基础框架
-- 统一指令表示（Instruction）
-- 指令序列管理（InstructionSequence）
+- Isa 基类（统一指令表示）
+- 指令序列管理（IsaSequence）
 - 执行上下文（ExecutionContext）
-- 指令注册表（InstructionRegistry）
-- PC驱动执行引擎（InstructionExecutor）
+- 指令注册表（IsaRegistry）
+- PC驱动执行引擎（IsaExecutor）
 
 ### ✅ 阶段2：算术运算
 - 整数运算：addi, subi, muli, divsi
@@ -122,45 +124,18 @@ cmake --build build -j4
 ```
 Starting simulation (mode: asynchronous)...
 
-[cycle=0] PC 0: Normal: %ubA = memref.alloc() : memref<128xf16>
-  [memref.alloc] Allocated 256 bytes for memref<128xf16>
-[cycle=1] Scalar advanced 1 cycles
-
-[cycle=1] PC 1: Normal: "hivm.hir.load"(%arg0, %ubA) : ...
-  [hivm.hir.load] GM -> UB on MTE
-    Data size: 256 bytes (128 elements)
-  [Dispatch] Task to MTE, duration=10 cycles, dataSize=256 bytes
-  Active tasks:
-    - hivm.hir.load on MTE (complete at cycle 11)
-
-...
+PC[0] IsaID[0] arith.constant
+PC[1] IsaID[1] arith.constant
+PC[2] IsaID[2] for.init
+PC[3] IsaID[3] for.condition -> true:4 false:8
+PC[4] IsaID[4] arith.addi
+PC[5] IsaID[5] for.increment
+PC[6] IsaID[6] jump -> PC 3
+PC[7] IsaID[7] func.return
 
 Simulation completed.
 Final PC: 8
-Total cycles: 56
-All units idle: yes
-```
-
-### 同步模式对比
-
-```
-Starting simulation (mode: synchronous)...
-
-[cycle=0] PC 0: Normal: %ubA = memref.alloc() : memref<128xf16>
-  [memref.alloc] Allocated 256 bytes for memref<128xf16>
-[cycle=1] Scalar advanced 1 cycles
-
-[cycle=1] PC 1: Normal: "hivm.hir.load"(%arg0, %ubA) : ...
-  [hivm.hir.load] GM -> UB on MTE
-    Data size: 256 bytes (128 elements)
-[cycle=11] Scalar advanced 10 cycles
-
-...
-
-Simulation completed.
-Final PC: 8
-Total cycles: 326
-All units idle: yes
+Total cycles: 15
 ```
 
 ## 项目结构
@@ -168,108 +143,119 @@ All units idle: yes
 ```
 ascendir_parser/
 ├── include/
-│   ├── Instruction.h              # 指令表示
-│   ├── InstructionSequence.h      # 指令序列
-│   ├── InstructionRegistry.h      # 指令注册表（含耗时和目标单元）
-│   ├── ExecutionContext.h         # 执行上下文（含cycle和多组件管理）
-│   ├── ExecutionUnit.h            # 执行单元定义（MTE/Cube/Vec）
-│   └── InstructionExecutor.h      # 指令执行器
+│   ├── Isa.h                     # Isa 基类定义
+│   ├── IsaRegistry.h             # 指令注册系统
+│   ├── IsaSequence.h             # 指令序列管理
+│   ├── IsaExecutor.h             # 指令执行器
+│   ├── ExecutionContext.h        # 执行上下文（含cycle和多组件管理）
+│   ├── ExecutionUnit.h           # 执行单元定义（MTE/Cube/Vec）
+│   ├── Parser.h                  # MLIR解析器
+│   └── Instructions/
+│       ├── ArithIsas.h           # 算术指令类
+│       ├── FuncIsas.h            # 函数指令类
+│       ├── HivmIsas.h            # HIVM指令类
+│       └── ControlFlowIsas.h     # 控制流指令类
 │
 ├── src/
-│   ├── InstructionSequence.cpp
-│   ├── ExecutionContext.cpp
-│   ├── InstructionRegistry.cpp
-│   ├── InstructionExecutor.cpp
-│   ├── Instructions/
-│   │   ├── ArithInstructions.cpp  # arith操作
-│   │   ├── FuncInstructions.cpp   # func操作
-│   │   └── HivmInstructions.cpp   # hivm操作（含多组件支持）
-│   └── main.cpp                   # 主程序
+│   ├── main.cpp                  # 主程序
+│   ├── Parser.cpp                # MLIR解析实现
+│   ├── Analyzer.cpp              # MLIR未注册操作分析器
+│   ├── ExecutionContext.cpp      # 运行时状态管理
+│   ├── Isa.cpp                   # Isa 静态变量定义
+│   ├── IsaRegistry.cpp           # 注册系统实现
+│   ├── IsaSequence.cpp           # 序列构建实现
+│   └── IsaExecutor.cpp           # 执行器实现
 │
 ├── test/
-│   ├── test_simple.mlir           # 简单测试
-│   ├── test_arith.mlir            # 算术测试
-│   ├── test_for.mlir              # 循环测试
-│   ├── test_nested_for.mlir       # 嵌套循环测试
-│   ├── test_if.mlir               # 条件分支测试
-│   ├── test_call.mlir             # 函数调用测试
-│   ├── test_hivm_basic.mlir       # HIVM方言测试
-│   ├── test_multi_component.mlir  # 多组件协作测试
-│   ├── test_matmul_pipeline.mlir  # 矩阵乘法流水线测试
-│   └── test_pipeline.mlir         # 完整流水线测试
+│   ├── test_simple.mlir          # 简单测试
+│   ├── test_arith.mlir           # 算术测试
+│   ├── test_scf_for.mlir         # 循环测试
+│   ├── test_nested_for.mlir      # 嵌套循环测试
+│   ├── test_scf_if.mlir          # 条件分支测试
+│   ├── test_hivm_basic.mlir      # HIVM方言测试
+│   ├── test_multi_component.mlir # 多组件协作测试
+│   ├── test_matmul_pipeline.mlir # 矩阵乘法流水线测试
+│   └── test_pipeline.mlir        # 完整流水线测试
 │
 └── docs/
-    ├── SimulatorDesign.md         # 设计文档
-    ├── SimulatorUsage.md          # 使用说明
-    └── SimulatorSummary.md        # 开发总结
+    ├── SimulatorDesign.md        # 设计文档
+    ├── SimulatorUsage.md         # 使用说明
+    └── SimulatorSummary.md       # 开发总结
 ```
 
 ## 架构特点
 
-### 1. PC驱动执行模型
-- 简单清晰的执行流程
-- 支持线性指令序列
-- 支持跳转和控制流
+### 1. Isa 基类设计
+- 所有指令继承自 Isa 基类
+- 包含 `decode()` 方法：从 MLIR 操作解码
+- 包含 `execute()` 方法：执行指令逻辑
+- **IsaID**：全局唯一实例ID，每次创建指令时递增
+- **PC**：程序计数器，标识指令在程序中的位置
 
-### 2. 统一指令管理
+### 2. IsaID vs PC 的区别
+- **IsaID**：每次创建指令实例时分配，全局唯一且递增
+- **PC**：指令在程序中的位置，同一指令多次执行时 PC 相同但 IsaID 不同
+- 例如：for 循环中的指令，每次迭代 PC 相同，但 IsaID 递增
+
+### 3. 统一指令管理
 - 注册表模式支持动态扩展
 - 易于添加新dialect
-- 模块化的指令处理器
+- 模块化的指令类
 - 指令耗时配置
 
-### 3. 类型安全
+### 4. 类型安全
 - 使用APInt/APFloat支持MLIR类型系统
 - 正确处理SSA值
 - 类型安全的值存储
 
-### 4. 控制流展平
+### 5. 控制流展平
 - scf.for → ForInit + ForCondition + ForIncrement
 - scf.if → IfCondition + Jump
 - 支持嵌套控制流
 
-### 5. 多组件并行执行
+### 6. 多组件并行执行
 - Scalar：主调度单元，负责标量运算和任务分发
 - MTE：内存传输引擎，处理load/store
 - Cube：矩阵计算单元，处理matmul
 - Vec：向量计算单元，处理vadd/vmul
 - 异步任务分发和同步等待机制
 
-### 6. 数据大小相关延迟
+### 7. 数据大小相关延迟
 - 根据数据量动态计算延迟
 - 支持不同组件的吞吐量配置
 - 真实模拟NPU硬件行为
 
 ## 扩展新指令
 
-在 `src/Instructions/` 目录下添加新的指令处理器：
+在 `include/Instructions/` 目录下添加新的指令类：
 
 ```cpp
-// 1. 固定延迟指令（Scalar组件）
-void executeMyOp(mlir::Operation* op, ExecutionContext& ctx) {
-    // 实现指令逻辑
-}
-REGISTER_INSTRUCTION_WITH_LATENCY("mydialect.myop", executeMyOp, 10);
+// 1. 创建指令类
+class MyCustomIsa : public Isa {
+public:
+    bool decode(mlir::Operation* op) override {
+        return Isa::decode(op);
+    }
+    
+    void execute(ExecutionContext& ctx) override {
+        // 实现指令逻辑
+    }
+    
+    std::string getDescription() const override {
+        return "mydialect.myop";
+    }
+};
 
-// 2. 指定组件的指令
-void executeVecOp(mlir::Operation* op, ExecutionContext& ctx) {
-    // 实现向量运算
-}
-REGISTER_INSTRUCTION_ON_UNIT("mydialect.vecop", executeVecOp, 5, ExecutionUnitType::Vec);
+// 2. 注册指令（固定延迟）
+REGISTER_ISA_WITH_LATENCY("mydialect.myop", MyCustomIsa, 10);
 
-// 3. 数据大小相关延迟的指令
-size_t calculateDataSize(mlir::Operation* op, ExecutionContext& ctx) {
-    // 计算数据大小
-    return dataSize;
-}
+// 3. 注册指令到特定组件
+REGISTER_ISA_ON_UNIT("mydialect.vecop", MyVecIsa, 5, ExecutionUnitType::Vec);
 
-ComponentLatencyModel model;
-model.baseLatency = 10;
-model.bytesPerCycle = 256.0;
-model.dataSizeDependent = true;
-
-REGISTER_INSTRUCTION_WITH_DATA_SIZE("mydialect.mteop", executeMteOp,
-                                    calculateDataSize, model,
-                                    ExecutionUnitType::MTE);
+// 4. 注册数据大小相关延迟的指令
+REGISTER_ISA_WITH_DATA_SIZE("mydialect.mteop", MyMteIsa,
+                            calculateDataSize, model,
+                            ExecutionUnitType::MTE);
 ```
 
 ## 文档

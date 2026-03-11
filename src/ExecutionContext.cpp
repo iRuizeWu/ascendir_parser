@@ -2,7 +2,6 @@
 #include "llvm/Support/raw_ostream.h"
 #include "llvm/ADT/SmallString.h"
 #include <iostream>
-#include <algorithm>
 
 namespace ascendir_parser {
 
@@ -82,103 +81,10 @@ uint64_t ExecutionContext::popCallFrame() {
     return frame.returnPC;
 }
 
-uint64_t ExecutionContext::dispatchTask(ExecutionUnitType unit, uint64_t duration, 
-                                         const std::string& opName, uint64_t instPC) {
-    PendingTask task;
-    task.taskId = nextTaskId++;
-    task.startCycle = cycle;
-    task.duration = duration;
-    task.unit = unit;
-    task.opName = opName;
-    task.pc = instPC;
-    
-    activeTasks.push_back(task);
-    
-    auto& execUnit = executionUnits.at(unit);
-    execUnit.dispatchTask(task);
-    
-    return task.taskId;
-}
-
-void ExecutionContext::updateExecutionUnits() {
-    for (auto& pair : executionUnits) {
-        pair.second.update(cycle);
-    }
-    
-    activeTasks.erase(
-        std::remove_if(activeTasks.begin(), activeTasks.end(),
-            [this](const PendingTask& task) {
-                return task.isComplete(cycle);
-            }),
-        activeTasks.end());
-}
-
-bool ExecutionContext::isUnitBusy(ExecutionUnitType unit) const {
-    auto it = executionUnits.find(unit);
-    if (it == executionUnits.end()) {
-        return false;
-    }
-    return it->second.isBusy(cycle);
-}
-
-uint64_t ExecutionContext::getUnitBusyUntil(ExecutionUnitType unit) const {
-    auto it = executionUnits.find(unit);
-    if (it == executionUnits.end()) {
-        return cycle;
-    }
-    return it->second.getBusyUntilCycle();
-}
-
-bool ExecutionContext::allUnitsIdle() const {
-    for (const auto& pair : executionUnits) {
-        if (pair.second.isBusy(cycle)) {
-            return false;
-        }
-    }
-    return true;
-}
-
-uint64_t ExecutionContext::getEarliestCompletionCycle() const {
-    uint64_t earliest = UINT64_MAX;
-    for (const auto& pair : executionUnits) {
-        if (pair.second.isBusy(cycle)) {
-            uint64_t busyUntil = pair.second.getBusyUntilCycle();
-            if (busyUntil < earliest) {
-                earliest = busyUntil;
-            }
-        }
-    }
-    return earliest == UINT64_MAX ? cycle : earliest;
-}
-
-void ExecutionContext::advanceToCompletion(ExecutionUnitType unit) {
-    uint64_t busyUntil = getUnitBusyUntil(unit);
-    if (busyUntil > cycle) {
-        cycle = busyUntil;
-        updateExecutionUnits();
-    }
-}
-
 void ExecutionContext::dump() {
     llvm::outs() << "=== Execution Context ===\n";
-    llvm::outs() << "PC: " << pc << "\n";
-    llvm::outs() << "Cycle: " << cycle << "\n";
     llvm::outs() << "Halted: " << (halted ? "true" : "false") << "\n";
     llvm::outs() << "Call Stack Depth: " << callStack.size() << "\n";
-    
-    llvm::outs() << "\nExecution Units:\n";
-    for (const auto& pair : executionUnits) {
-        llvm::outs() << "  " << executionUnitToString(pair.first) 
-                     << ": busy=" << (pair.second.isBusy(cycle) ? "yes" : "no")
-                     << ", busyUntil=" << pair.second.getBusyUntilCycle() << "\n";
-    }
-    
-    llvm::outs() << "\nActive Tasks (" << activeTasks.size() << "):\n";
-    for (const auto& task : activeTasks) {
-        llvm::outs() << "  Task " << task.taskId << ": " << task.opName
-                     << " on " << executionUnitToString(task.unit)
-                     << ", complete at cycle " << task.completeCycle() << "\n";
-    }
     
     llvm::outs() << "\nInteger Values:\n";
     for (const auto& kv : intValues) {

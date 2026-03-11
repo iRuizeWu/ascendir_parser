@@ -144,8 +144,12 @@ endfunction()
 ```
 Usage: ascendir_parser [options] <mlir-file>
 Options:
-  --dump    Print function entries and IR source strings
-  --help    Show this help message
+  --dump           Print function entries and IR source strings
+  --simulate       Run MLIR simulation
+  --dump-sequence  Dump instruction sequence (with --simulate)
+  --verbose        Show detailed execution info (with --simulate)
+  --sync           Synchronous execution mode (with --simulate)
+  --help           Show this help message
 ```
 
 ### 解析并打印IR
@@ -177,9 +181,27 @@ func.func @mul_add_mix_aic(%arg0: memref<64x64xf16>, ...) {
 ...
 ```
 
+### 运行仿真器
+
+```bash
+# 基本仿真
+./build/src/ascendir_parser test/test_simple.mlir --simulate
+
+# 显示指令序列
+./build/src/ascendir_parser test/test_for.mlir --simulate --dump-sequence
+
+# 详细执行信息（含cycle耗时）
+./build/src/ascendir_parser test/test_pipeline.mlir --simulate --verbose
+
+# 同步模式（对比异步模式）
+./build/src/ascendir_parser test/test_pipeline.mlir --simulate --verbose --sync
+```
+
 ---
 
 ## 测试文件
+
+### 解析器测试
 
 | 文件 | 说明 |
 |------|------|
@@ -190,19 +212,41 @@ func.func @mul_add_mix_aic(%arg0: memref<64x64xf16>, ...) {
 | test_llvm_hivm_intr.mlir | LLVM + HIVM intrinsic测试 |
 | test_with_branch.mlir | 控制流分支测试 |
 
+### 仿真器测试
+
+| 文件 | 说明 |
+|------|------|
+| test/test_simple.mlir | 简单常量测试 |
+| test/test_arith.mlir | 算术运算测试 |
+| test/test_float.mlir | 浮点运算测试 |
+| test/test_compare.mlir | 比较运算测试 |
+| test/test_scf_for.mlir | 循环测试 |
+| test/test_nested_for.mlir | 嵌套循环测试 |
+| test/test_scf_if.mlir | 条件分支测试 |
+| test/test_scf_if_else.mlir | if-else分支测试 |
+| test/test_nested_if.mlir | 嵌套条件测试 |
+| test/test_hivm_basic.mlir | HIVM方言测试 |
+| test/test_multi_component.mlir | 多组件协作测试 |
+| test/test_pipeline.mlir | 完整流水线测试 |
+
 ### 运行所有测试
 
 ```bash
 # 进入项目目录
 cd /home/ruize/code/github/ascendir_parser
 
-# 基础测试
+# 解析器测试
 ./build/src/ascendir_parser test.mlir
 ./build/src/ascendir_parser --dump test2.mlir
 ./build/src/ascendir_parser --dump test_memref.mlir
 
 # BiShengIR测试（需要完整编译）
 ./build/src/ascendir_parser --dump test_hivm.mlir
+
+# 仿真器测试
+./build/src/ascendir_parser test/test_simple.mlir --simulate
+./build/src/ascendir_parser test/test_for.mlir --simulate --verbose
+./build/src/ascendir_parser test/test_pipeline.mlir --simulate --verbose
 ```
 
 ---

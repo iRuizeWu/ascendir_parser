@@ -1,8 +1,7 @@
 #include "Parser.h"
-#include "InstructionExecutor.h"
-#include "InstructionRegistry.h"
-#include "Instruction.h"
 #include "ExecutionUnit.h"
+#include "IsaExecutor.h"
+#include "IsaRegistry.h"
 #include "llvm/Support/raw_ostream.h"
 #include <iostream>
 #include <string>
@@ -93,9 +92,9 @@ int main(int argc, char **argv) {
       std::cout << func.irSource << "\n\n";
     }
   } else if (simulateMode) {
-    ascendir_parser::registerAllInstructions();
+    ascendir_parser::registerAllIsas();
     
-    ascendir_parser::InstructionExecutor executor;
+    ascendir_parser::IsaExecutor executor;
     executor.load(*module);
     executor.setVerbose(verboseMode);
     executor.setAsyncMode(!syncMode);
@@ -108,51 +107,16 @@ int main(int argc, char **argv) {
     if (verboseMode) {
       std::cout << "Starting simulation (mode: " << (syncMode ? "synchronous" : "asynchronous") << ")...\n\n";
       
-      uint64_t lastCycle = 0;
-      while (!executor.isHalted()) {
-        uint64_t pc = executor.getCurrentPC();
-        uint64_t startCycle = executor.getContext().getCycle();
-        auto& seq = executor.getSequence();
-        const ascendir_parser::Instruction* inst = seq.getInstructionByPCConst(pc);
-        std::string desc = seq.getInstructionDescription(pc);
-        
-        if (startCycle > lastCycle) {
-          std::cout << "[cycle=" << startCycle << "] Time advanced " << (startCycle - lastCycle) << " cycles\n";
-        }
-        
-        std::cout << "[cycle=" << startCycle << "] PC " << pc << ": " << desc << "\n";
-        
-        executor.executeNext();
-        
-        uint64_t endCycle = executor.getContext().getCycle();
-        if (endCycle > startCycle) {
-          std::cout << "[cycle=" << endCycle << "] Scalar advanced " << (endCycle - startCycle) << " cycles\n";
-        }
-        
-        const auto& tasks = executor.getContext().getActiveTasks();
-        if (!tasks.empty()) {
-          std::cout << "  Active tasks:\n";
-          for (const auto& task : tasks) {
-            std::cout << "    - " << task.opName 
-                      << " on " << ascendir_parser::executionUnitToString(task.unit)
-                      << " (complete at cycle " << task.completeCycle() << ")\n";
-          }
-        }
-        
-        std::cout << "\n";
-        lastCycle = endCycle;
+      while (executor.tick()) {
       }
       
-      std::cout << "Simulation completed.\n";
+      std::cout << "\nSimulation completed.\n";
       std::cout << "Final PC: " << executor.getCurrentPC() << "\n";
-      std::cout << "Total cycles: " << executor.getContext().getCycle() << "\n";
-      
-      std::cout << "\n=== Execution Unit Statistics ===\n";
-      std::cout << "All units idle: " << (executor.getContext().allUnitsIdle() ? "yes" : "no") << "\n";
+      std::cout << "Total cycles: " << executor.getCurrentCycle() << "\n";
     } else {
       executor.run();
       std::cout << "Simulation completed.\n";
-      std::cout << "Total cycles: " << executor.getContext().getCycle() << "\n";
+      std::cout << "Total cycles: " << executor.getCurrentCycle() << "\n";
     }
   } else {
     parser.printModule(*module);

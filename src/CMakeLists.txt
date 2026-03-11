@@ -2,13 +2,11 @@ add_executable(ascendir_parser
   main.cpp
   Parser.cpp
   Analyzer.cpp
-  InstructionSequence.cpp
   ExecutionContext.cpp
-  InstructionRegistry.cpp
-  InstructionExecutor.cpp
-  Instructions/ArithInstructions.cpp
-  Instructions/FuncInstructions.cpp
-  Instructions/HivmInstructions.cpp
+  Isa.cpp
+  IsaRegistry.cpp
+  IsaSequence.cpp
+  IsaExecutor.cpp
 )
 
 target_include_directories(ascendir_parser PRIVATE

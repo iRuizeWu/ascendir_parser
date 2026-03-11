@@ -59,26 +59,26 @@ cmake --build build -j4
 
 ### arith dialect
 
-| 操作 | 说明 | 耗时 (cycles) |
-|------|------|---------------|
-| `arith.constant` | 常量定义 | 1 |
-| `arith.addi` | 整数加法 | 1 |
-| `arith.subi` | 整数减法 | 1 |
-| `arith.muli` | 整数乘法 | 3 |
-| `arith.divsi` | 整数除法 | 10 |
-| `arith.addf` | 浮点加法 | 2 |
-| `arith.subf` | 浮点减法 | 2 |
-| `arith.mulf` | 浮点乘法 | 4 |
-| `arith.divf` | 浮点除法 | 12 |
-| `arith.cmpi` | 整数比较 | 1 |
-| `arith.index_cast` | 类型转换 | 1 |
+| 操作 | 说明 | 耗时 (cycles) | 执行单元 |
+|------|------|---------------|----------|
+| `arith.constant` | 常量定义 | 1 | Scalar |
+| `arith.addi` | 整数加法 | 1 | Scalar |
+| `arith.subi` | 整数减法 | 1 | Scalar |
+| `arith.muli` | 整数乘法 | 3 | Scalar |
+| `arith.divsi` | 整数除法 | 10 | Scalar |
+| `arith.addf` | 浮点加法 | 2 | Scalar |
+| `arith.subf` | 浮点减法 | 2 | Scalar |
+| `arith.mulf` | 浮点乘法 | 4 | Scalar |
+| `arith.divf` | 浮点除法 | 12 | Scalar |
+| `arith.cmpi` | 整数比较 | 1 | Scalar |
+| `arith.index_cast` | 类型转换 | 5 | Scalar |
 
 ### func dialect
 
-| 操作 | 说明 | 耗时 (cycles) |
-|------|------|---------------|
-| `func.call` | 函数调用 | 5 |
-| `func.return` | 函数返回 | 1 |
+| 操作 | 说明 | 耗时 (cycles) | 执行单元 |
+|------|------|---------------|----------|
+| `func.call` | 函数调用 | 5 | Scalar |
+| `func.return` | 函数返回 | 1 | Scalar |
 
 ### scf dialect
 
@@ -90,94 +90,51 @@ cmake --build build -j4
 
 ### memref dialect
 
-| 操作 | 说明 | 耗时 (cycles) |
-|------|------|---------------|
-| `memref.alloc` | 内存分配 | 1 |
+| 操作 | 说明 | 耗时 (cycles) | 执行单元 |
+|------|------|---------------|----------|
+| `memref.alloc` | 内存分配 | 1 | Scalar |
 
 ### hivm dialect
 
-| 操作 | 说明 | 组件 | 延迟模型 |
-|------|------|------|----------|
-| `hivm.hir.load` | GM到UB数据加载 | MTE | base=10, 128 bytes/cycle |
-| `hivm.hir.vadd` | 向量加法 | Vec | base=5, 256 bytes/cycle |
-| `hivm.hir.vmul` | 向量乘法 | Vec | base=5, 256 bytes/cycle |
-| `hivm.hir.matmul` | 矩阵乘法 | Cube | base=20, 512 bytes/cycle |
-| `hivm.hir.store` | UB到GM数据存储 | MTE | base=10, 128 bytes/cycle |
+| 操作 | 说明 | 执行单元 | 延迟模型 |
+|------|------|----------|----------|
+| `hivm.hir.load` | GM到UB数据加载 | MTE | base=10, 动态计算 |
+| `hivm.hir.vadd` | 向量加法 | Vec | base=5, 动态计算 |
+| `hivm.hir.vmul` | 向量乘法 | Vec | base=5, 动态计算 |
+| `hivm.hir.matmul` | 矩阵乘法 | Cube | base=20, 动态计算 |
+| `hivm.hir.store` | UB到GM数据存储 | MTE | base=10, 动态计算 |
 
-**延迟计算公式**: `latency = max(baseLatency, dataSize / bytesPerCycle)`
-
-**示例**:
-- `memref<128xf16>` 的 load: dataSize=256 bytes, latency=max(10, 256/128)=10 cycles
-- `memref<64x64xf16>` 的 matmul: dataSize=16384 bytes, latency=max(20, 16384/512)=32 cycles
+**延迟计算**：每个 Isa 类通过 `getHardwareCharacteristics()` 方法动态计算延迟，可根据数据大小调整。
 
 ## 输出格式
 
-### 异步模式输出
+### 详细输出示例
 
 ```
 Starting simulation (mode: asynchronous)...
 
-[cycle=0] PC 0: Normal: %ubA = memref.alloc() : memref<128xf16>
-  [memref.alloc] Allocated 256 bytes for memref<128xf16>
-[cycle=1] Scalar advanced 1 cycles
-
-[cycle=1] PC 1: Normal: "hivm.hir.load"(%arg0, %ubA) : ...
-  [hivm.hir.load] GM -> UB on MTE
-    Data size: 256 bytes (128 elements)
-    Initialized 128 elements (test data): [0, 1, 2, 3, ..., 126, 127]
-  [Dispatch] Task to MTE, duration=10 cycles, dataSize=256 bytes
-  Active tasks:
-    - hivm.hir.load on MTE (complete at cycle 11)
-
-[cycle=2] PC 2: Normal: %ubB = memref.alloc() : memref<128xf16>
+Cycle[1] PC[0] IsaID[0] memref.alloc
   [memref.alloc] Allocated 256 bytes for memref<128xf16>
 
-[cycle=3] PC 3: Normal: "hivm.hir.load"(%arg1, %ubB) : ...
+Cycle[2] PC[1] IsaID[1] hivm.hir.load
   [hivm.hir.load] GM -> UB on MTE
     Data size: 256 bytes (128 elements)
-  [Dispatch] Task to MTE, duration=10 cycles, dataSize=256 bytes
-  Active tasks:
-    - hivm.hir.load on MTE (complete at cycle 11)
-    - hivm.hir.load on MTE (complete at cycle 13)
+  Dispatched task 0 on MTE unit, latency=10
+
+Cycle[3] PC[2] IsaID[2] memref.alloc
+  [memref.alloc] Allocated 256 bytes for memref<128xf16>
 
 ...
 
 Simulation completed.
-Final PC: 8
 Total cycles: 56
-All units idle: yes
-```
-
-### 同步模式输出
-
-```
-Starting simulation (mode: synchronous)...
-
-[cycle=0] PC 0: Normal: %ubA = memref.alloc() : memref<128xf16>
-  [memref.alloc] Allocated 256 bytes for memref<128xf16>
-[cycle=1] Scalar advanced 1 cycles
-
-[cycle=1] PC 1: Normal: "hivm.hir.load"(%arg0, %ubA) : ...
-  [hivm.hir.load] GM -> UB on MTE
-    Data size: 256 bytes (128 elements)
-[cycle=11] Scalar advanced 10 cycles
-
-...
-
-Simulation completed.
-Final PC: 8
-Total cycles: 326
-All units idle: yes
 ```
 
 ### 输出说明
 
-- `[cycle=X] PC Y: ...` - 在cycle X时开始执行PC Y处的指令
-- `[Dispatch] Task to <unit>` - 任务分发到对应组件
-- `Active tasks:` - 当前活跃的后台任务
-- `complete at cycle X` - 任务完成时间
+- `Cycle[X] PC[Y] IsaID[Z] ...` - 在 cycle X 时开始执行 PC Y 处的指令
+- `Dispatched task N on <unit> unit` - 任务分发到对应组件
 - `Total cycles: N` - 总耗时统计
-- `All units idle: yes/no` - 所有组件是否空闲
 
 ## 测试示例
 
@@ -193,17 +150,14 @@ All units idle: yes
 ### test_compare.mlir
 比较运算测试
 
-### test_for.mlir
+### test_scf_for.mlir
 循环测试
 
 ### test_nested_for.mlir
 嵌套循环测试
 
-### test_if.mlir
+### test_scf_if.mlir
 条件分支测试
-
-### test_call.mlir
-函数调用测试
 
 ### test_hivm_basic.mlir
 HIVM方言测试（向量加法）
@@ -221,20 +175,23 @@ HIVM方言测试（向量加法）
 
 仿真器采用PC驱动的执行模型，支持多组件并行执行：
 
-1. **InstructionSequence** - 线性指令序列，支持PC管理
-2. **ExecutionContext** - 运行时状态管理（值存储、PC、调用栈、cycle计数、多组件管理）
-3. **InstructionExecutor** - PC驱动的执行引擎
-4. **InstructionRegistry** - 指令注册表，支持动态扩展和耗时配置
-5. **ExecutionUnit** - 执行单元（Scalar、MTE、Cube、Vec）
+### 核心组件
+
+| 组件 | 职责 |
+|------|------|
+| ExecutionContext | 值存储、调用栈管理 |
+| IsaExecutor | PC/Cycle 管理、执行单元实例化、阻塞管理 |
+| IsaRegistry | 创建 Isa 实例（工厂模式） |
+| Isa 类 | 执行逻辑 + 硬件特性描述 |
 
 ### 多组件执行模型
 
 ```
 ┌─────────────────────────────────────────┐
-│         Scalar (主调度单元)              │
-│  - PC驱动执行                           │
-│  - 标量运算：直接执行                   │
-│  - 其他指令：分发到对应组件             │
+│         IsaExecutor (主调度器)           │
+│  - PC 管理                              │
+│  - Cycle 管理                           │
+│  - 任务分发                             │
 └─────────────────────────────────────────┘
          ↓ dispatch    ↓ dispatch    ↓ dispatch
 ┌─────────────┐ ┌─────────────┐ ┌─────────────┐
@@ -244,37 +201,62 @@ HIVM方言测试（向量加法）
 └─────────────┘ └─────────────┘ └─────────────┘
 ```
 
-## 扩展新指令
+### Isa 类自描述硬件特性
 
-在 `src/Instructions/` 目录下添加新的指令处理器：
+每个 Isa 子类定义自己的硬件特性：
 
 ```cpp
-// 1. 固定延迟指令（Scalar组件）
-void executeMyOp(mlir::Operation* op, ExecutionContext& ctx) {
-    // 实现指令逻辑
-}
-REGISTER_INSTRUCTION_WITH_LATENCY("mydialect.myop", executeMyOp, 10);
+class HivmHirLoadIsa : public Isa {
+public:
+    ExecutionUnitType getExecutionUnit() const override {
+        return ExecutionUnitType::MTE;
+    }
+    
+    uint64_t getLatency() const override {
+        return 10;
+    }
+    
+    HardwareCharacteristics getHardwareCharacteristics(ExecutionContext& ctx) override {
+        // 动态计算延迟
+    }
+};
+```
 
-// 2. 指定组件的指令
-void executeVecOp(mlir::Operation* op, ExecutionContext& ctx) {
-    // 实现向量运算
-}
-REGISTER_INSTRUCTION_ON_UNIT("mydialect.vecop", executeVecOp, 5, ExecutionUnitType::Vec);
+## 扩展新指令
 
-// 3. 数据大小相关延迟的指令
-size_t calculateDataSize(mlir::Operation* op, ExecutionContext& ctx) {
-    // 计算数据大小
-    return dataSize;
-}
+在 `include/Instructions/` 目录下添加新的ISA指令类：
 
-ComponentLatencyModel model;
-model.baseLatency = 10;
-model.bytesPerCycle = 256.0;
-model.dataSizeDependent = true;
+```cpp
+// 1. 定义新的ISA类
+class MyCustomIsa : public Isa {
+public:
+    ExecutionUnitType getExecutionUnit() const override {
+        return ExecutionUnitType::Vec;
+    }
+    
+    uint64_t getLatency() const override {
+        return 5;
+    }
+    
+    HardwareCharacteristics getHardwareCharacteristics(ExecutionContext& ctx) override {
+        HardwareCharacteristics hw;
+        hw.targetUnit = ExecutionUnitType::Vec;
+        hw.latency = 5;  // 或根据数据大小计算
+        return hw;
+    }
+    
+    IsaExecuteResult execute(ExecutionContext& ctx) override {
+        // 实现指令逻辑
+        return IsaExecuteResult::continueExecution();
+    }
+    
+    std::string getDescription() const override {
+        return "mydialect.myop";
+    }
+};
 
-REGISTER_INSTRUCTION_WITH_DATA_SIZE("mydialect.mteop", executeMteOp,
-                                    calculateDataSize, model,
-                                    ExecutionUnitType::MTE);
+// 2. 注册指令
+REGISTER_ISA("mydialect.myop", MyCustomIsa);
 ```
 
 ## 下一步计划
