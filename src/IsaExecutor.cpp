@@ -81,28 +81,93 @@ void IsaExecutor::executeIsa(Isa* isa) {
         return;
     }
     
-    IsaExecuteResult result = isa->execute(ctx);
+    // 执行指令
+    isa->execute(ctx);
     
-    switch (result.action) {
-        case IsaExecuteResult::Action::Continue:
-            pc++;
+    // 根据IsaName处理控制流
+    IsaName isaName = isa->getIsaName();
+    
+    switch (isaName) {
+        case IsaName::Jump: {
+            // 无条件跳转：直接跳转到目标PC
+            pc = isa->getJumpTarget();
             break;
-        case IsaExecuteResult::Action::Jump:
-            pc = result.jumpTarget;
+        }
+        
+        case IsaName::ConditionalJump: {
+            // 条件跳转：根据条件值决定跳转
+            auto condValue = ctx.getIntValue(isa->getCondition());
+            bool cond = condValue != 0;
+            if (cond) {
+                pc = isa->getJumpTarget();
+            } else {
+                pc = isa->getFallthroughPC();
+            }
             break;
-        case IsaExecuteResult::Action::Halt:
-            ctx.halt();
-            break;
-        case IsaExecuteResult::Action::Call:
-            ctx.pushCallFrame(result.returnPC);
-            pc = result.jumpTarget;
-            break;
-        case IsaExecuteResult::Action::Return:
+        }
+        
+        case IsaName::Return: {
+            // 返回指令
             if (!ctx.hasCallFrames()) {
                 ctx.halt();
             } else {
                 pc = ctx.popCallFrame();
             }
+            break;
+        }
+        
+        case IsaName::FuncCall: {
+            // 函数调用：保存返回地址并跳转到函数入口
+            ctx.pushCallFrame(pc + 1);
+            // 实际应该查找函数入口，这里简化处理
+            pc = isa->getJumpTarget();
+            break;
+        }
+        
+        case IsaName::FuncReturn: {
+            // 函数返回：恢复调用者的PC
+            if (!ctx.hasCallFrames()) {
+                ctx.halt();
+            } else {
+                pc = ctx.popCallFrame();
+            }
+            break;
+        }
+        
+        case IsaName::ForCondition: {
+            // for循环条件判断
+            auto ivValue = ctx.getIntValue(isa->getForIV());
+            auto ubValue = ctx.getIntValue(isa->getForUB());
+            bool cond = ivValue.slt(ubValue);  // 有符号比较
+            if (cond) {
+                pc = isa->getJumpTarget();  // 继续循环
+            } else {
+                pc = isa->getFallthroughPC();  // 退出循环
+            }
+            break;
+        }
+        
+        case IsaName::IfCondition: {
+            // if条件判断
+            auto condValue = ctx.getIntValue(isa->getCondition());
+            bool cond = condValue != 0;
+            if (cond) {
+                pc = isa->getJumpTarget();  // 执行then分支
+            } else {
+                pc = isa->getFallthroughPC();  // 执行else分支
+            }
+            break;
+        }
+        
+        case IsaName::ForInit:
+        case IsaName::ForIncrement:
+            // for循环初始化和增量指令，PC递增
+            pc++;
+            break;
+        
+        default:
+            // 普通指令，PC递增
+            pc++;
             break;
     }
     

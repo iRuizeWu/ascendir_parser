@@ -6,8 +6,9 @@
 
 namespace ascendir_parser {
 
-void IsaRegistry::registerIsa(const std::string& opName, IsaFactory factory) {
+void IsaRegistry::registerIsa(const std::string& opName, IsaFactory factory, IsaName isaName) {
     isaRegistry[opName] = factory;
+    isaNameMap[opName] = isaName;  // 同时记录IsaName映射
 }
 
 IsaPtr IsaRegistry::createIsa(const std::string& opName) {

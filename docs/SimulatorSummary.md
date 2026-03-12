@@ -34,9 +34,9 @@
 
 1. **整数运算**
    - `arith.constant` - 整数常量
-   - `arith.addi` - 加法 (1 cycle)
-   - `arith.subi` - 减法 (1 cycle)
-   - `arith.muli` - 乘法 (3 cycles)
+   - `arith.addi` - 加法 (1 cycle) - **支持不同位宽操作数**
+   - `arith.subi` - 减法 (1 cycle) - **支持不同位宽操作数**
+   - `arith.muli` - 乘法 (3 cycles) - **支持不同位宽操作数**
    - `arith.divsi` - 除法 (10 cycles)
    - `arith.cmpi` - 比较（支持所有 10 种谓词）
    - `arith.index_cast` - 类型转换 (5 cycles)
@@ -51,6 +51,12 @@
 3. **函数操作**
    - `func.call` - 函数调用 (5 cycles)
    - `func.return` - 函数返回 (1 cycle)
+
+4. **位宽一致性处理** ✅
+   - 整数运算指令自动处理不同位宽操作数
+   - 使用符号扩展（sext）统一操作数位宽
+   - 确保APInt运算的位宽一致性
+   - 支持index类型与i32/i64等类型的混合运算
 
 ### 阶段3：控制流展平 ✅
 
@@ -130,22 +136,34 @@
 
 ## 测试验证
 
-所有测试用例均已通过：
+所有测试用例均已通过（共19项）：
 
+### 基础功能测试
 - ✅ [test_simple.mlir](../test/test_simple.mlir) - 简单常量测试
 - ✅ [test_arith.mlir](../test/test_arith.mlir) - 算术运算测试
 - ✅ [test_compute.mlir](../test/test_compute.mlir) - 复杂计算测试
 - ✅ [test_float.mlir](../test/test_float.mlir) - 浮点运算测试
 - ✅ [test_compare.mlir](../test/test_compare.mlir) - 比较运算测试
 - ✅ [test_all.mlir](../test/test_all.mlir) - 综合测试
+
+### 控制流测试
 - ✅ [test_scf_for.mlir](../test/test_scf_for.mlir) - 循环测试
-- ✅ [test_nested_for.mlir](../test/test_nested_for.mlir) - 嵌套循环测试
 - ✅ [test_scf_if.mlir](../test/test_scf_if.mlir) - 条件分支测试
+- ✅ [test_scf_if_else.mlir](../test/test_scf_if_else.mlir) - if-else分支测试
+- ✅ [test_nested.mlir](../test/test_nested.mlir) - 嵌套控制流测试（包含位宽转换）
+- ✅ [test_nested_for.mlir](../test/test_nested_for.mlir) - 嵌套循环测试
 - ✅ [test_nested_if.mlir](../test/test_nested_if.mlir) - 嵌套条件测试
-- ✅ [test_hivm_basic.mlir](../test/test_hivm_basic.mlir) - HIVM方言测试
-- ✅ [test_multi_component.mlir](../test/test_multi_component.mlir) - 多组件协作测试
+- ✅ [test_complex_control_flow.mlir](../test/test_complex_control_flow.mlir) - 复杂控制流测试
+- ✅ [test_deep_nesting.mlir](../test/test_deep_nesting.mlir) - 深度嵌套测试
+
+### 高级功能测试
+- ✅ [test_pipeline.mlir](../test/test_pipeline.mlir) - 流水线测试
 - ✅ [test_matmul_pipeline.mlir](../test/test_matmul_pipeline.mlir) - 矩阵乘法流水线测试
-- ✅ [test_pipeline.mlir](../test/test_pipeline.mlir) - 完整流水线测试
+- ✅ [test_multi_component.mlir](../test/test_multi_component.mlir) - 多组件协作测试
+
+### HIVM方言测试
+- ✅ [test_hivm_basic.mlir](../test/test_hivm_basic.mlir) - HIVM基础测试
+- ✅ [test_hivm_complex.mlir](../test/test_hivm_complex.mlir) - HIVM复杂测试
 
 ## 架构特点
 
@@ -197,25 +215,24 @@ cmake --build build -j4
 
 # 运行仿真（同步模式，对比）
 ./build/src/ascendir_parser test/test_pipeline.mlir --simulate --verbose --sync
-```
 
 ### 输出示例
 
 ```
 Simulation completed.
 Total cycles: 56
-```
 
 ## 技术亮点
 
 1. **模块化设计** - 各组件职责明确，易于维护和扩展
 2. **Isa 自描述** - 每个指令类定义自己的硬件特性
-3. **类型安全** - 正确处理MLIR类型系统
+3. **类型安全** - 正确处理MLIR类型系统，支持不同位宽操作数运算
 4. **渐进式实现** - 分阶段实现，降低开发风险
 5. **指令耗时模拟** - 支持cycle级别的性能分析
 6. **多组件并行执行** - 真实模拟NPU硬件行为
 7. **数据大小相关延迟** - 根据数据量动态计算延迟
 8. **异步/同步模式切换** - 灵活的执行模式选择
+9. **位宽一致性处理** - 自动处理不同位宽整数运算，避免APInt断言错误
 
 ## 文档
 
@@ -235,3 +252,4 @@ MLIR仿真器已完成全部7个阶段的开发，支持arith、func、scf、mem
 5. **多组件并行执行** - Scalar、MTE、Cube、Vec组件协作
 6. **数据大小相关延迟** - 真实模拟NPU硬件行为
 7. **灵活的执行模式** - 异步/同步模式切换
+

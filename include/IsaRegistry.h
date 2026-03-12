@@ -11,7 +11,7 @@ class IsaRegistry {
 public:
     using IsaFactory = std::function<IsaPtr()>;
     
-    void registerIsa(const std::string& opName, IsaFactory factory);
+    void registerIsa(const std::string& opName, IsaFactory factory, IsaName isaName);
     
     IsaPtr createIsa(const std::string& opName);
     bool hasIsa(const std::string& opName);
@@ -20,11 +20,17 @@ public:
     
 private:
     std::map<std::string, IsaFactory> isaRegistry;
+    std::map<std::string, IsaName> isaNameMap;  // 新增：opName到IsaName的映射
 };
 
-#define REGISTER_ISA(opName, IsaClass) \
+// 修改宏：同时注册IsaName
+#define REGISTER_ISA(opName, IsaClass, isaNameEnum) \
     IsaRegistry::getGlobalRegistry().registerIsa(opName, \
-        []() -> IsaPtr { return std::make_unique<IsaClass>(); })
+        []() -> IsaPtr { \
+            auto isa = std::make_unique<IsaClass>(); \
+            isa->setIsaName(isaNameEnum); \
+            return isa; \
+        }, isaNameEnum)
 
 void registerAllIsas();
 

@@ -10,10 +10,11 @@ class JumpIsa : public Isa {
 public:
     JumpIsa() {
         kind = Kind::Jump;
+        isaName = IsaName::Jump;
     }
     
-    IsaExecuteResult execute(ExecutionContext& ctx) override {
-        return IsaExecuteResult::jumpTo(jumpTarget);
+    void execute(ExecutionContext& ctx) override {
+        // 控制流由IsaExecutor根据IsaName::Jump和jumpTarget处理
     }
     
     std::string getDescription() const override {
@@ -25,20 +26,11 @@ class ConditionalJumpIsa : public Isa {
 public:
     ConditionalJumpIsa() {
         kind = Kind::ConditionalJump;
+        isaName = IsaName::ConditionalJump;
     }
     
-    IsaExecuteResult execute(ExecutionContext& ctx) override {
-        if (condition) {
-            auto condValue = ctx.getIntValue(condition);
-            bool cond = condValue != 0;
-            
-            if (cond) {
-                return IsaExecuteResult::jumpTo(jumpTarget);
-            } else {
-                return IsaExecuteResult::jumpTo(fallthroughPC);
-            }
-        }
-        return IsaExecuteResult::continueExecution();
+    void execute(ExecutionContext& ctx) override {
+        // 控制流由IsaExecutor根据IsaName::ConditionalJump、condition、jumpTarget、fallthroughPC处理
     }
     
     std::string getDescription() const override {
@@ -51,14 +43,11 @@ class ReturnIsa : public Isa {
 public:
     ReturnIsa() {
         kind = Kind::Return;
+        isaName = IsaName::Return;
     }
     
-    IsaExecuteResult execute(ExecutionContext& ctx) override {
-        if (!ctx.hasCallFrames()) {
-            return IsaExecuteResult::halt();
-        } else {
-            return IsaExecuteResult::ret();
-        }
+    void execute(ExecutionContext& ctx) override {
+        // 控制流由IsaExecutor根据IsaName::Return处理
     }
     
     std::string getDescription() const override {
@@ -70,9 +59,10 @@ class ForInitIsa : public Isa {
 public:
     ForInitIsa() {
         kind = Kind::ForInit;
+        isaName = IsaName::ForInit;
     }
     
-    IsaExecuteResult execute(ExecutionContext& ctx) override {
+    void execute(ExecutionContext& ctx) override {
         auto lbValue = ctx.getIntValue(forLB);
         ctx.setIntValue(forIV, lbValue);
         
@@ -83,7 +73,6 @@ public:
                 ctx.setFloatValue(iterArgs[i], ctx.getFloatValue(iterArgInits[i]));
             }
         }
-        return IsaExecuteResult::continueExecution();
     }
     
     std::string getDescription() const override {
@@ -95,25 +84,11 @@ class ForConditionIsa : public Isa {
 public:
     ForConditionIsa() {
         kind = Kind::ForCondition;
+        isaName = IsaName::ForCondition;
     }
     
-    IsaExecuteResult execute(ExecutionContext& ctx) override {
-        auto ivValue = ctx.getIntValue(forIV);
-        auto ubValue = ctx.getIntValue(forUB);
-        auto stepValue = ctx.getIntValue(forStep);
-        
-        bool continueLoop = false;
-        if (stepValue.sgt(llvm::APInt(stepValue.getBitWidth(), 0))) {
-            continueLoop = ivValue.slt(ubValue);
-        } else {
-            continueLoop = ivValue.sgt(ubValue);
-        }
-        
-        if (continueLoop) {
-            return IsaExecuteResult::jumpTo(jumpTarget);
-        } else {
-            return IsaExecuteResult::jumpTo(fallthroughPC);
-        }
+    void execute(ExecutionContext& ctx) override {
+        // 控制流由IsaExecutor根据IsaName::ForCondition处理
     }
     
     std::string getDescription() const override {
@@ -126,14 +101,14 @@ class ForIncrementIsa : public Isa {
 public:
     ForIncrementIsa() {
         kind = Kind::ForIncrement;
+        isaName = IsaName::ForIncrement;
     }
     
-    IsaExecuteResult execute(ExecutionContext& ctx) override {
+    void execute(ExecutionContext& ctx) override {
         auto ivValue = ctx.getIntValue(forIV);
         auto stepValue = ctx.getIntValue(forStep);
         llvm::APInt newIV = ivValue + stepValue;
         ctx.setIntValue(forIV, newIV);
-        return IsaExecuteResult::continueExecution();
     }
     
     std::string getDescription() const override {
@@ -145,20 +120,11 @@ class IfConditionIsa : public Isa {
 public:
     IfConditionIsa() {
         kind = Kind::IfCondition;
+        isaName = IsaName::IfCondition;
     }
     
-    IsaExecuteResult execute(ExecutionContext& ctx) override {
-        if (condition) {
-            auto condValue = ctx.getIntValue(condition);
-            bool cond = condValue != 0;
-            
-            if (cond) {
-                return IsaExecuteResult::jumpTo(jumpTarget);
-            } else {
-                return IsaExecuteResult::jumpTo(fallthroughPC);
-            }
-        }
-        return IsaExecuteResult::continueExecution();
+    void execute(ExecutionContext& ctx) override {
+        // 控制流由IsaExecutor根据IsaName::IfCondition处理
     }
     
     std::string getDescription() const override {

@@ -8,11 +8,15 @@ namespace ascendir_parser {
 
 class FuncCallIsa : public Isa {
 public:
+    FuncCallIsa() {
+        isaName = IsaName::FuncCall;
+    }
+    
     uint64_t getLatency() const override { return 5; }
     
-    IsaExecuteResult execute(ExecutionContext& ctx) override {
+    void execute(ExecutionContext& ctx) override {
+        // 控制流由IsaExecutor根据IsaName::FuncCall处理
         llvm::errs() << "func.call not yet implemented\n";
-        return IsaExecuteResult::halt();
     }
     
     std::string getDescription() const override {
@@ -22,14 +26,14 @@ public:
 
 class FuncReturnIsa : public Isa {
 public:
+    FuncReturnIsa() {
+        isaName = IsaName::FuncReturn;
+    }
+    
     uint64_t getLatency() const override { return 1; }
     
-    IsaExecuteResult execute(ExecutionContext& ctx) override {
-        if (!ctx.hasCallFrames()) {
-            return IsaExecuteResult::halt();
-        } else {
-            return IsaExecuteResult::ret();
-        }
+    void execute(ExecutionContext& ctx) override {
+        // 控制流由IsaExecutor根据IsaName::FuncReturn处理
     }
     
     std::string getDescription() const override {
@@ -38,8 +42,8 @@ public:
 };
 
 inline void registerFuncIsas() {
-    REGISTER_ISA("func.call", FuncCallIsa);
-    REGISTER_ISA("func.return", FuncReturnIsa);
+    REGISTER_ISA("func.call", FuncCallIsa, IsaName::FuncCall);
+    REGISTER_ISA("func.return", FuncReturnIsa, IsaName::FuncReturn);
 }
 
 }

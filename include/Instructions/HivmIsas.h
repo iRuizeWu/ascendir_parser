@@ -63,6 +63,10 @@ mlir::Type getElementType(mlir::Value memref) {
 
 class MemrefAllocIsa : public Isa {
 public:
+    MemrefAllocIsa() {
+        isaName = IsaName::MemrefAlloc;
+    }
+    
     ExecutionUnitType getExecutionUnit() const override {
         return ExecutionUnitType::Scalar;
     }
@@ -71,7 +75,7 @@ public:
         return 1;
     }
     
-    IsaExecuteResult execute(ExecutionContext& ctx) override {
+    void execute(ExecutionContext& ctx) override {
         auto allocOp = llvm::cast<mlir::memref::AllocOp>(mlirOp);
         auto result = allocOp.getResult();
         
@@ -88,7 +92,6 @@ public:
             }
             llvm::outs() << "x" << memrefType.getElementType() << ">\n";
         }
-        return IsaExecuteResult::continueExecution();
     }
     
     std::string getDescription() const override {
@@ -98,6 +101,10 @@ public:
 
 class HivmHirLoadIsa : public Isa {
 public:
+    HivmHirLoadIsa() {
+        isaName = IsaName::HivmHirLoad;
+    }
+    
     ExecutionUnitType getExecutionUnit() const override {
         return ExecutionUnitType::MTE;
     }
@@ -119,12 +126,12 @@ public:
         return hw;
     }
     
-    IsaExecuteResult execute(ExecutionContext& ctx) override {
+    void execute(ExecutionContext& ctx) override {
         auto operands = mlirOp->getOperands();
         
         if (operands.size() < 2) {
             llvm::outs() << "  [hivm.hir.load] Error: insufficient operands\n";
-            return IsaExecuteResult::continueExecution();
+            return;
         }
         
         mlir::Value src = operands[0];
@@ -166,7 +173,6 @@ public:
             
             ctx.setMemrefData(dst, std::move(buffer));
         }
-        return IsaExecuteResult::continueExecution();
     }
     
     std::string getDescription() const override {
@@ -176,6 +182,10 @@ public:
 
 class HivmHirStoreIsa : public Isa {
 public:
+    HivmHirStoreIsa() {
+        isaName = IsaName::HivmHirStore;
+    }
+    
     ExecutionUnitType getExecutionUnit() const override {
         return ExecutionUnitType::MTE;
     }
@@ -197,12 +207,12 @@ public:
         return hw;
     }
     
-    IsaExecuteResult execute(ExecutionContext& ctx) override {
+    void execute(ExecutionContext& ctx) override {
         auto operands = mlirOp->getOperands();
         
         if (operands.size() < 2) {
             llvm::outs() << "  [hivm.hir.store] Error: insufficient operands\n";
-            return IsaExecuteResult::continueExecution();
+            return;
         }
         
         mlir::Value src = operands[0];
@@ -237,7 +247,6 @@ public:
             
             ctx.setMemrefData(dst, srcData);
         }
-        return IsaExecuteResult::continueExecution();
     }
     
     std::string getDescription() const override {
@@ -247,6 +256,10 @@ public:
 
 class HivmHirVaddIsa : public Isa {
 public:
+    HivmHirVaddIsa() {
+        isaName = IsaName::HivmHirVadd;
+    }
+    
     ExecutionUnitType getExecutionUnit() const override {
         return ExecutionUnitType::Vec;
     }
@@ -268,12 +281,12 @@ public:
         return hw;
     }
     
-    IsaExecuteResult execute(ExecutionContext& ctx) override {
+    void execute(ExecutionContext& ctx) override {
         auto operands = mlirOp->getOperands();
         
         if (operands.size() < 3) {
             llvm::outs() << "  [hivm.hir.vadd] Error: insufficient operands\n";
-            return IsaExecuteResult::continueExecution();
+            return;
         }
         
         mlir::Value srcA = operands[0];
@@ -319,7 +332,6 @@ public:
             
             ctx.setMemrefData(dst, std::move(resultData));
         }
-        return IsaExecuteResult::continueExecution();
     }
     
     std::string getDescription() const override {
@@ -329,6 +341,10 @@ public:
 
 class HivmHirVmulIsa : public Isa {
 public:
+    HivmHirVmulIsa() {
+        isaName = IsaName::HivmHirVmul;
+    }
+    
     ExecutionUnitType getExecutionUnit() const override {
         return ExecutionUnitType::Vec;
     }
@@ -350,12 +366,12 @@ public:
         return hw;
     }
     
-    IsaExecuteResult execute(ExecutionContext& ctx) override {
+    void execute(ExecutionContext& ctx) override {
         auto operands = mlirOp->getOperands();
         
         if (operands.size() < 3) {
             llvm::outs() << "  [hivm.hir.vmul] Error: insufficient operands\n";
-            return IsaExecuteResult::continueExecution();
+            return;
         }
         
         mlir::Value srcA = operands[0];
@@ -401,7 +417,6 @@ public:
             
             ctx.setMemrefData(dst, std::move(resultData));
         }
-        return IsaExecuteResult::continueExecution();
     }
     
     std::string getDescription() const override {
@@ -411,6 +426,10 @@ public:
 
 class HivmHirMatmulIsa : public Isa {
 public:
+    HivmHirMatmulIsa() {
+        isaName = IsaName::HivmHirMatmul;
+    }
+    
     ExecutionUnitType getExecutionUnit() const override {
         return ExecutionUnitType::Cube;
     }
@@ -432,12 +451,12 @@ public:
         return hw;
     }
     
-    IsaExecuteResult execute(ExecutionContext& ctx) override {
+    void execute(ExecutionContext& ctx) override {
         auto operands = mlirOp->getOperands();
         
         if (operands.size() < 3) {
             llvm::outs() << "  [hivm.hir.matmul] Error: insufficient operands\n";
-            return IsaExecuteResult::continueExecution();
+            return;
         }
         
         mlir::Value srcA = operands[0];
@@ -496,7 +515,6 @@ public:
             
             ctx.setMemrefData(dst, std::move(resultData));
         }
-        return IsaExecuteResult::continueExecution();
     }
     
     std::string getDescription() const override {
@@ -505,12 +523,12 @@ public:
 };
 
 inline void registerHivmIsas() {
-    REGISTER_ISA("memref.alloc", MemrefAllocIsa);
-    REGISTER_ISA("hivm.hir.load", HivmHirLoadIsa);
-    REGISTER_ISA("hivm.hir.store", HivmHirStoreIsa);
-    REGISTER_ISA("hivm.hir.vadd", HivmHirVaddIsa);
-    REGISTER_ISA("hivm.hir.vmul", HivmHirVmulIsa);
-    REGISTER_ISA("hivm.hir.matmul", HivmHirMatmulIsa);
+    REGISTER_ISA("memref.alloc", MemrefAllocIsa, IsaName::MemrefAlloc);
+    REGISTER_ISA("hivm.hir.load", HivmHirLoadIsa, IsaName::HivmHirLoad);
+    REGISTER_ISA("hivm.hir.store", HivmHirStoreIsa, IsaName::HivmHirStore);
+    REGISTER_ISA("hivm.hir.vadd", HivmHirVaddIsa, IsaName::HivmHirVadd);
+    REGISTER_ISA("hivm.hir.vmul", HivmHirVmulIsa, IsaName::HivmHirVmul);
+    REGISTER_ISA("hivm.hir.matmul", HivmHirMatmulIsa, IsaName::HivmHirMatmul);
 }
 
 }

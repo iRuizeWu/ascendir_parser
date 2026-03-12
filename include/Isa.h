@@ -12,38 +12,47 @@ namespace ascendir_parser {
 
 using IsaID = uint64_t;
 
-struct IsaExecuteResult {
-    enum class Action {
-        Continue,
-        Jump,
-        Halt,
-        Call,
-        Return
-    };
+// IsaName 枚举：标识不同的指令类型
+enum class IsaName {
+    // Arith operations
+    ArithConstant,
+    ArithAddi,
+    ArithSubi,
+    ArithMuli,
+    ArithDivi,
+    ArithAddf,
+    ArithSubf,
+    ArithMulf,
+    ArithDivf,
+    ArithCmpi,
+    ArithIndexCast,
     
-    Action action = Action::Continue;
-    uint64_t jumpTarget = 0;
-    uint64_t returnPC = 0;
+    // Control flow operations
+    Jump,
+    ConditionalJump,
+    Return,
+    ForInit,
+    ForCondition,
+    ForIncrement,
+    IfCondition,
+    YieldAssign,
     
-    static IsaExecuteResult continueExecution() {
-        return IsaExecuteResult{Action::Continue, 0, 0};
-    }
+    // Func operations
+    FuncCall,
+    FuncReturn,
     
-    static IsaExecuteResult jumpTo(uint64_t target) {
-        return IsaExecuteResult{Action::Jump, target, 0};
-    }
+    // Memref operations
+    MemrefAlloc,
     
-    static IsaExecuteResult halt() {
-        return IsaExecuteResult{Action::Halt, 0, 0};
-    }
+    // HIVM operations
+    HivmHirLoad,
+    HivmHirStore,
+    HivmHirVadd,
+    HivmHirVmul,
+    HivmHirMatmul,
     
-    static IsaExecuteResult call(uint64_t target, uint64_t retPC) {
-        return IsaExecuteResult{Action::Call, target, retPC};
-    }
-    
-    static IsaExecuteResult ret() {
-        return IsaExecuteResult{Action::Return, 0, 0};
-    }
+    // Unknown
+    Unknown
 };
 
 struct HardwareCharacteristics {
@@ -60,6 +69,7 @@ protected:
     uint64_t pc;
     mlir::Operation* mlirOp;
     std::string opName;
+    IsaName isaName;  // 新增：指令名称标识
     
     static IsaID nextIsaID;
     
@@ -93,7 +103,7 @@ protected:
     mlir::Operation* forOp = nullptr;
     
 public:
-    Isa() : isaID(nextIsaID++), pc(0), mlirOp(nullptr), kind(Kind::Normal) {}
+    Isa() : isaID(nextIsaID++), pc(0), mlirOp(nullptr), isaName(IsaName::Unknown), kind(Kind::Normal) {}
     virtual ~Isa() = default;
     
     IsaID getIsaID() const { return isaID; }
@@ -102,6 +112,9 @@ public:
     
     mlir::Operation* getMlirOp() const { return mlirOp; }
     void setMlirOp(mlir::Operation* op) { mlirOp = op; }
+    
+    IsaName getIsaName() const { return isaName; }
+    void setIsaName(IsaName name) { isaName = name; }
     
     Kind getKind() const { return kind; }
     void setKind(Kind k) { kind = k; }
@@ -126,7 +139,8 @@ public:
         return true;
     }
     
-    virtual IsaExecuteResult execute(ExecutionContext& ctx) = 0;
+    // 修改：返回值改为 void
+    virtual void execute(ExecutionContext& ctx) = 0;
     
     virtual ExecutionUnitType getExecutionUnit() const {
         return ExecutionUnitType::Scalar;

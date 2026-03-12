@@ -10,9 +10,10 @@ class YieldAssignIsa : public Isa {
 public:
     YieldAssignIsa() {
         kind = Kind::Normal;
+        isaName = IsaName::YieldAssign;
     }
     
-    IsaExecuteResult execute(ExecutionContext& ctx) override {
+    void execute(ExecutionContext& ctx) override {
         if (condition && forIV) {
             if (ctx.hasIntValue(condition)) {
                 ctx.setIntValue(forIV, ctx.getIntValue(condition));
@@ -20,7 +21,6 @@ public:
                 ctx.setFloatValue(forIV, ctx.getFloatValue(condition));
             }
         }
-        return IsaExecuteResult::continueExecution();
     }
     
     std::string getDescription() const override {

@@ -13,7 +13,6 @@ cmake -G Ninja -S . -B build \
     -DLLVM_DIR=/home/ruize/code/github/AscendNPU-IR/build \
     -DMLIR_DIR=/home/ruize/code/github/AscendNPU-IR/build/lib/cmake/mlir
 cmake --build build -j4
-```
 
 ## 使用方法
 
@@ -21,57 +20,57 @@ cmake --build build -j4
 
 ```bash
 ./build/src/ascendir_parser test.mlir --simulate
-```
 
 ### 显示指令序列
 
 ```bash
 ./build/src/ascendir_parser test.mlir --simulate --dump-sequence
-```
 
 ### 详细执行信息（含cycle耗时）
 
 ```bash
 ./build/src/ascendir_parser test.mlir --simulate --verbose
-```
 
 ### 异步模式（默认）
 
 ```bash
 # 异步模式：Scalar分发任务后继续执行，其他组件并行工作
 ./build/src/ascendir_parser test.mlir --simulate --verbose
-```
 
 ### 同步模式
 
 ```bash
 # 同步模式：每条指令等待完成后才继续
 ./build/src/ascendir_parser test.mlir --simulate --verbose --sync
-```
 
 ### 组合使用
 
 ```bash
 ./build/src/ascendir_parser test.mlir --simulate --dump-sequence --verbose
-```
 
 ## 支持的操作
 
 ### arith dialect
 
-| 操作 | 说明 | 耗时 (cycles) | 执行单元 |
-|------|------|---------------|----------|
-| `arith.constant` | 常量定义 | 1 | Scalar |
-| `arith.addi` | 整数加法 | 1 | Scalar |
-| `arith.subi` | 整数减法 | 1 | Scalar |
-| `arith.muli` | 整数乘法 | 3 | Scalar |
-| `arith.divsi` | 整数除法 | 10 | Scalar |
-| `arith.addf` | 浮点加法 | 2 | Scalar |
-| `arith.subf` | 浮点减法 | 2 | Scalar |
-| `arith.mulf` | 浮点乘法 | 4 | Scalar |
-| `arith.divf` | 浮点除法 | 12 | Scalar |
-| `arith.cmpi` | 整数比较 | 1 | Scalar |
-| `arith.index_cast` | 类型转换 | 5 | Scalar |
+| 操作 | 说明 | 耗时 (cycles) | 执行单元 | 特性 |
+|------|------|---------------|----------|------|
+| `arith.constant` | 常量定义 | 1 | Scalar | - |
+| `arith.addi` | 整数加法 | 1 | Scalar | 支持不同位宽操作数 |
+| `arith.subi` | 整数减法 | 1 | Scalar | 支持不同位宽操作数 |
+| `arith.muli` | 整数乘法 | 3 | Scalar | 支持不同位宽操作数 |
+| `arith.divsi` | 整数除法 | 10 | Scalar | - |
+| `arith.addf` | 浮点加法 | 2 | Scalar | - |
+| `arith.subf` | 浮点减法 | 2 | Scalar | - |
+| `arith.mulf` | 浮点乘法 | 4 | Scalar | - |
+| `arith.divf` | 浮点除法 | 12 | Scalar | - |
+| `arith.cmpi` | 整数比较 | 1 | Scalar | 支持10种谓词 |
+| `arith.index_cast` | 类型转换 | 5 | Scalar | index ↔ i32/i64 |
+
+**位宽处理说明**：
+- 整数运算指令（addi、subi、muli）自动处理不同位宽的操作数
+- 使用符号扩展（sext）统一操作数位宽后再进行运算
+- 支持index类型（64位）与i32类型的混合运算
+- 确保APInt运算的位宽一致性，避免断言错误
 
 ### func dialect
 
@@ -128,7 +127,6 @@ Cycle[3] PC[2] IsaID[2] memref.alloc
 
 Simulation completed.
 Total cycles: 56
-```
 
 ### 输出说明
 
@@ -199,7 +197,6 @@ HIVM方言测试（向量加法）
 │ 数据搬运    │ │  矩阵乘法   │ │  向量运算   │
 │ load/store  │ │  matmul     │ │ vadd/vmul   │
 └─────────────┘ └─────────────┘ └─────────────┘
-```
 
 ### Isa 类自描述硬件特性
 
@@ -220,7 +217,6 @@ public:
         // 动态计算延迟
     }
 };
-```
 
 ## 扩展新指令
 
@@ -256,7 +252,6 @@ public:
 };
 
 // 2. 注册指令
-REGISTER_ISA("mydialect.myop", MyCustomIsa);
 ```
 
 ## 下一步计划
