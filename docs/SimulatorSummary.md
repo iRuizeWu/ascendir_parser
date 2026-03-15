@@ -21,14 +21,17 @@
 3. **指令类文件**
    - [ArithIsas.h](../include/Instructions/ArithIsas.h) - arith 指令类
    - [ControlFlowIsas.h](../include/Instructions/ControlFlowIsas.h) - 控制流指令类
-   - [FuncIsas.h](../include/Instructions/FuncIsas.h) - func 指令类
+   - [FuncIsas.h](../include/Instructions/FuncIsas.h) - func 指令类（含外部函数检测）
    - [HivmIsas.h](../include/Instructions/HivmIsas.h) - hivm 指令类
-   - [YieldIsa.h](../include/Instructions/YieldIsa.h) - yield 赋值指令
+   - [YieldIsa.h](../include/Instructions/YieldIsa.h) - yield 赋值指令（YieldAssignIsa、IfYieldIsa）
 
 4. **命令行接口**
    - `--simulate` - 执行 MLIR 程序
    - `--dump-sequence` - 显示指令序列
    - `--verbose` - 显示详细执行信息（含 cycle 耗时）
+   - `--func-config <file>` - 指定外部函数配置文件
+   - `--func-cycle <name>=<cycles>` - 设置函数延迟
+   - `--dump-config` - 显示当前配置
 
 ### 阶段2：算术运算 ✅
 
@@ -134,6 +137,39 @@
    - 同步模式：每条指令等待完成后才继续
    - `--sync` 命令行选项
 
+### 阶段8：外部函数配置 ✅
+
+1. **配置系统**
+   - [ExternalFunctionConfig.h](../include/ExternalFunctionConfig.h) - 外部函数配置类
+   - [ExternalFunctionConfig.cpp](../src/ExternalFunctionConfig.cpp) - 配置解析实现
+   - [config/external_func.yml](../config/external_func.yml) - YAML配置文件
+
+2. **外部函数检测**
+   - 自动检测只有声明没有实现的函数
+   - 通过配置文件指定延迟和执行单元
+   - 支持命令行动态设置
+
+3. **命令行选项**
+   - `--func-config <file>` - 指定配置文件
+   - `--func-cycle <name>=<cycles>` - 设置函数延迟
+   - `--dump-config` - 显示当前配置
+
+### 阶段9：增强的Yield处理 ✅
+
+1. **YieldAssignIsa**
+   - 处理scf.for中的yield
+   - 支持位置信息显示（scf.for.yield）
+   - 支持值显示（操作结果 -> 目标参数）
+
+2. **IfYieldIsa**
+   - 处理scf.if中的yield
+   - 支持位置信息显示（scf.if.then / scf.if.else）
+   - 支持值显示（操作结果）
+
+3. **值缓存机制**
+   - execute()方法中缓存计算值
+   - getDescription()方法中显示缓存的值
+
 ## 测试验证
 
 所有测试用例均已通过（共19项）：
@@ -233,6 +269,8 @@ Total cycles: 56
 7. **数据大小相关延迟** - 根据数据量动态计算延迟
 8. **异步/同步模式切换** - 灵活的执行模式选择
 9. **位宽一致性处理** - 自动处理不同位宽整数运算，避免APInt断言错误
+10. **外部函数配置** - YAML配置文件支持自定义延迟和执行单元
+11. **增强的Yield处理** - 支持位置信息和值显示，便于调试
 
 ## 文档
 
@@ -241,7 +279,7 @@ Total cycles: 56
 
 ## 总结
 
-MLIR仿真器已完成全部7个阶段的开发，支持arith、func、scf、memref和hivm dialect。系统架构清晰，易于扩展，支持控制流展平、指令耗时模拟和多组件并行执行，为后续的指令发射优化提供了良好的基础。
+MLIR仿真器已完成全部9个阶段的开发，支持arith、func、scf、memref和hivm dialect。系统架构清晰，易于扩展，支持控制流展平、指令耗时模拟、多组件并行执行、外部函数配置和增强的yield处理，为后续的指令发射优化提供了良好的基础。
 
 ### 核心能力
 
@@ -252,4 +290,6 @@ MLIR仿真器已完成全部7个阶段的开发，支持arith、func、scf、mem
 5. **多组件并行执行** - Scalar、MTE、Cube、Vec组件协作
 6. **数据大小相关延迟** - 真实模拟NPU硬件行为
 7. **灵活的执行模式** - 异步/同步模式切换
+8. **外部函数配置** - YAML配置文件支持自定义延迟和执行单元
+9. **增强的Yield处理** - 支持位置信息和值显示
 

@@ -83,3 +83,24 @@ if(BISHENGIR_DIR AND BISHENGIR_SOURCE_DIR)
 endif()
 
 add_subdirectory(src)
+
+# Google Test
+enable_testing()
+
+# Try to find GTest first
+find_package(GTest QUIET CONFIG)
+
+if(NOT GTest_FOUND)
+  message(STATUS "GTest not found via find_package, trying FetchContent...")
+  include(FetchContent)
+  FetchContent_Declare(
+    googletest
+    URL https://github.com/google/googletest/archive/refs/tags/v1.14.0.zip
+  )
+  set(gtest_force_shared_crt ON CACHE BOOL "" FORCE)
+  FetchContent_MakeAvailable(googletest)
+else()
+  message(STATUS "Found GTest: ${GTest_DIR}")
+endif()
+
+add_subdirectory(tests)

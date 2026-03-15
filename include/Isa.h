@@ -36,6 +36,7 @@ enum class IsaName {
     ForIncrement,
     IfCondition,
     YieldAssign,
+    IfYield,
     
     // Func operations
     FuncCall,

@@ -47,6 +47,63 @@ cmake --build build -j4
 
 ```bash
 ./build/src/ascendir_parser test.mlir --simulate --dump-sequence --verbose
+```
+
+### 外部函数配置
+
+当MLIR文件中调用外部函数（只有声明没有实现的函数）时，可以通过配置文件指定其延迟和执行单元。
+
+#### 配置文件
+
+配置文件位于 `config/external_func.yml`，格式如下：
+
+```yaml
+external_functions:
+  external_lib.matmul:
+    latency: 100
+    execution_unit: Cube
+    description: External matrix multiplication
+  external_lib.load:
+    latency: 50
+    execution_unit: MTE
+    description: External data loading
+  custom_op:
+    latency: 20
+    execution_unit: Scalar
+    description: Custom operation
+
+default_latency: 10
+default_unit: Scalar
+```
+
+#### 配置字段说明
+
+| 字段 | 说明 | 可选值 |
+|------|------|--------|
+| `latency` | 函数执行延迟（cycles） | 正整数 |
+| `execution_unit` | 执行单元 | Scalar, MTE, Cube, Vec |
+| `description` | 函数描述（可选） | 字符串 |
+
+#### 命令行选项
+
+```bash
+# 指定配置文件
+./build/src/ascendir_parser test.mlir --simulate --func-config config/external_func.yml
+
+# 命令行直接设置函数延迟
+./build/src/ascendir_parser test.mlir --simulate --func-cycle external_lib.matmul=100
+
+# 显示当前配置
+./build/src/ascendir_parser test.mlir --simulate --dump-config
+```
+
+#### 命令行选项说明
+
+| 选项 | 说明 |
+|------|------|
+| `--func-config <file>` | 指定外部函数配置文件（YAML格式） |
+| `--func-cycle <name>=<cycles>` | 直接设置指定函数的延迟 |
+| `--dump-config` | 显示当前外部函数配置 |
 
 ## 支持的操作
 
@@ -76,8 +133,13 @@ cmake --build build -j4
 
 | 操作 | 说明 | 耗时 (cycles) | 执行单元 |
 |------|------|---------------|----------|
-| `func.call` | 函数调用 | 5 | Scalar |
+| `func.call` | 函数调用 | 5（内部）/ 可配置（外部） | Scalar |
 | `func.return` | 函数返回 | 1 | Scalar |
+
+**外部函数调用**：
+- 当调用只有声明没有实现的函数时，自动识别为外部函数
+- 外部函数的延迟和执行单元可通过配置文件指定
+- 默认延迟为10 cycles，执行单元为Scalar
 
 ### scf dialect
 
@@ -85,7 +147,13 @@ cmake --build build -j4
 |------|------|
 | `scf.for` | for循环（展平为ForInit/ForCondition/ForIncrement） |
 | `scf.if` | 条件分支（展平为IfCondition） |
-| `scf.yield` | 产生值 |
+| `scf.yield` | 产生值（支持详细输出） |
+
+**Yield处理**：
+- `YieldAssignIsa`：处理scf.for中的yield，将结果赋值给迭代参数
+  - 输出示例：`yield.assign [scf.for.yield] (arith.addi=10 -> iterArg#1)`
+- `IfYieldIsa`：处理scf.if中的yield，产生if语句的结果
+  - 输出示例：`if.yield [scf.if.then] (arith.constant=10)`
 
 ### memref dialect
 

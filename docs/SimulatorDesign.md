@@ -14,6 +14,8 @@
 - **多组件并行执行模型**（Scalar、MTE、Cube、Vec）
 - **数据大小相关的延迟计算**
 - **Isa 类自描述硬件特性**（执行单元、延迟）
+- **外部函数配置**（YAML配置文件，支持自定义延迟和执行单元）
+- **增强的Yield处理**（支持位置信息和值显示）
 
 ## 2. 系统架构
 
@@ -492,13 +494,26 @@ void IsaExecutor::executeIsa(Isa* isa) {
 - `arith.index_cast` - 类型转换 (5 cycles, Scalar)
 
 ### 6.2 func dialect
-- `func.call` - 函数调用 (5 cycles, Scalar)
+- `func.call` - 函数调用 (5 cycles 内部函数, 可配置 外部函数, Scalar)
 - `func.return` - 函数返回 (1 cycle, Scalar)
+
+**外部函数检测**：
+- 函数只有声明没有实现（函数体为空）时，识别为外部函数
+- 外部函数的延迟和执行单元通过配置文件指定
+- 默认延迟为10 cycles，执行单元为Scalar
 
 ### 6.3 scf dialect
 - `scf.for` - for 循环
 - `scf.if` - 条件分支
-- `scf.yield` - 产生值
+- `scf.yield` - 产生值（支持详细输出）
+
+**Yield处理**：
+- `YieldAssignIsa`：处理scf.for中的yield，将计算结果赋值给迭代参数
+  - 支持位置信息显示（scf.for.yield）
+  - 支持值显示（操作结果 -> 目标参数）
+- `IfYieldIsa`：处理scf.if中的yield，产生if语句的结果
+  - 支持位置信息显示（scf.if.then / scf.if.else）
+  - 支持值显示（操作结果）
 
 ### 6.4 memref dialect
 - `memref.alloc` - 内存分配 (1 cycle, Scalar)
@@ -546,9 +561,171 @@ ascendir_parser/
     └── test_pipeline.mlir          # 完整流水线测试
 ```
 
-## 8. 扩展机制
+## 8. 外部函数配置系统
 
-### 8.1 添加新指令
+### 8.1 概述
+
+外部函数配置系统允许用户为MLIR文件中调用的外部函数（只有声明没有实现的函数）配置延迟和执行单元。
+
+### 8.2 配置文件格式
+
+配置文件使用YAML格式，位于 `config/external_func.yml`：
+
+```yaml
+external_functions:
+  <函数名>:
+    latency: <延迟cycles>
+    execution_unit: <执行单元>
+    description: <描述>（可选）
+
+default_latency: <默认延迟>
+default_unit: <默认执行单元>
+```
+
+### 8.3 核心数据结构
+
+```cpp
+struct ExternalFunctionInfo {
+    uint64_t latency;           // 延迟（cycles）
+    ExecutionUnitType executionUnit;  // 执行单元
+    std::string description;    // 描述
+};
+
+class ExternalFunctionConfig {
+    std::map<std::string, ExternalFunctionInfo> functions;
+    ExternalFunctionInfo defaultInfo;
+    
+public:
+    bool loadFromFile(const std::string& filepath);
+    bool loadFromYaml(const std::string& yamlContent);
+    void setFunctionCycle(const std::string& funcName, uint64_t cycle);
+    ExternalFunctionInfo getFunctionInfo(const std::string& funcName) const;
+    static ExternalFunctionConfig& getGlobalConfig();
+};
+```
+
+### 8.4 外部函数检测
+
+```cpp
+class FuncCallIsa : public Isa {
+    bool isExternal;
+    
+    bool checkIfExternal(mlir::Operation* op) {
+        // 检查函数是否只有声明没有实现
+        if (func.getBody().empty()) {
+            return true;  // 外部函数
+        }
+        return false;
+    }
+    
+    uint64_t getLatency() const override {
+        if (isExternal) {
+            return ExternalFunctionConfig::getGlobalConfig()
+                .getFunctionInfo(calleeName).latency;
+        }
+        return 5;  // 内部函数默认延迟
+    }
+};
+```
+
+### 8.5 命令行接口
+
+| 选项 | 说明 |
+|------|------|
+| `--func-config <file>` | 指定外部函数配置文件 |
+| `--func-cycle <name>=<cycles>` | 直接设置指定函数的延迟 |
+| `--dump-config` | 显示当前外部函数配置 |
+
+## 9. 增强的Yield处理
+
+### 9.1 YieldAssignIsa
+
+用于处理scf.for中的yield，将计算结果赋值给迭代参数：
+
+```cpp
+class YieldAssignIsa : public Isa {
+    std::string locationInfo;           // 位置信息
+    mlir::Value condition;              // yield的操作数
+    mlir::Value forIV;                  // 目标迭代参数
+    mutable std::optional<llvm::APInt> cachedIntValue;
+    mutable std::optional<llvm::APFloat> cachedFloatValue;
+    
+    void execute(ExecutionContext& ctx) override {
+        // 执行赋值并缓存值
+        if (ctx.hasIntValue(condition)) {
+            llvm::APInt val = ctx.getIntValue(condition);
+            cachedIntValue = val;
+            ctx.setIntValue(forIV, val);
+        }
+    }
+    
+    std::string getDescription() const override {
+        // 输出格式：yield.assign [scf.for.yield] (arith.addi=10 -> iterArg#1)
+        std::string result = "yield.assign [" + locationInfo + "] ";
+        if (cachedIntValue) {
+            result += "(" + opName + "=" + std::to_string(cachedIntValue->getSExtValue());
+            result += " -> iterArg#" + std::to_string(iterArgIndex) + ")";
+        }
+        return result;
+    }
+};
+```
+
+### 9.2 IfYieldIsa
+
+用于处理scf.if中的yield，产生if语句的结果：
+
+```cpp
+class IfYieldIsa : public Isa {
+    std::string locationInfo;           // 位置信息（scf.if.then / scf.if.else）
+    std::vector<mlir::Value> ifResults; // yield的操作数
+    mutable std::vector<std::string> cachedValues;
+    
+    void execute(ExecutionContext& ctx) override {
+        // 执行并缓存值
+        for (size_t i = 0; i < ifResults.size(); i++) {
+            if (ctx.hasIntValue(ifResults[i])) {
+                llvm::APInt val = ctx.getIntValue(ifResults[i]);
+                cachedValues.push_back(std::to_string(val.getSExtValue()));
+            }
+        }
+    }
+    
+    std::string getDescription() const override {
+        // 输出格式：if.yield [scf.if.then] (arith.constant=10)
+        std::string result = "if.yield [" + locationInfo + "] ";
+        // 添加缓存的值...
+        return result;
+    }
+};
+```
+
+### 9.3 flattenSCFIfNested中的Yield处理
+
+```cpp
+void IsaSequenceBuilder::flattenSCFIfNested(mlir::scf::IfOp op, 
+                                            const std::vector<mlir::Value>& parentIterArgs) {
+    // 处理then块中的yield
+    for (auto yieldOp : thenBlock.getOps<mlir::scf::YieldOp>()) {
+        if (!parentIterArgs.empty()) {
+            // 在for循环内：创建YieldAssignIsa
+            auto yieldAssignIsa = std::make_unique<YieldAssignIsa>();
+            yieldAssignIsa->setLocationInfo("scf.if.then");
+            // 设置操作数和目标...
+            sequence.addInstruction(std::move(yieldAssignIsa));
+        } else if (yieldOp.getNumOperands() > 0) {
+            // 不在for循环内：创建IfYieldIsa
+            auto ifYieldIsa = std::make_unique<IfYieldIsa>();
+            ifYieldIsa->setLocationInfo("scf.if.then");
+            ifYieldIsa->setIfResults(yieldOp.getOperands());
+            sequence.addInstruction(std::move(ifYieldIsa));
+        }
+    }
+}
+
+## 10. 扩展机制
+
+### 10.1 添加新指令
 
 ```cpp
 // 1. 定义 Isa 子类
@@ -589,9 +766,9 @@ inline void registerMyDialect() {
 }
 ```
 
-## 9. 输出格式
+## 11. 输出格式
 
-### 9.1 详细输出示例
+### 11.1 详细输出示例
 
 ```
 Starting simulation (mode: asynchronous)...
@@ -613,9 +790,9 @@ Simulation completed.
 Total cycles: 56
 ```
 
-## 10. 架构演进历史
+## 12. 架构演进历史
 
-### 10.1 最新变更（当前版本）
+### 12.1 最新变更（当前版本）
 
 **职责分离重构：**
 
@@ -632,7 +809,7 @@ Total cycles: 56
 3. `IsaExecutor` 集中管理 PC、Cycle 和执行单元
 4. `IsaRegistry` 简化为工厂模式
 
-## 11. 总结
+## 13. 总结
 
 本设计提供了一个完整的 MLIR 仿真器框架，具有以下特点：
 

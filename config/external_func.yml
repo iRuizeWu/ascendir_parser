@@ -1,0 +1,17 @@
+external_functions:
+  external_lib.matmul:
+    latency: 100
+    execution_unit: Cube
+    description: External matrix multiplication
+  
+  external_lib.conv2d:
+    latency: 150
+    execution_unit: Cube
+    description: External convolution
+  
+  external_lib.custom_op:
+    latency: 50
+    execution_unit: Scalar
+
+default_latency: 10
+default_unit: Scalar

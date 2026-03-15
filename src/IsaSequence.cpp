@@ -196,7 +196,7 @@ void IsaSequenceBuilder::flattenSCFFor(mlir::Operation* forOp) {
                     
                     auto assignIsa = std::make_unique<YieldAssignIsa>();
                     assignIsa->setPC(allocatePC());
-                    assignIsa->setSourceLocation("scf.for.yield_assign");
+                    assignIsa->setLocationInfo("scf.for.yield");
                     assignIsa->setCondition(yieldVal);
                     assignIsa->setForIV(iterArg);
                     sequence.addInstruction(std::move(assignIsa));
@@ -234,6 +234,7 @@ void IsaSequenceBuilder::flattenSCFIf(mlir::Operation* ifOp) {
 void IsaSequenceBuilder::flattenSCFIfNested(mlir::scf::IfOp op, 
                                               const std::vector<mlir::Value>& parentIterArgs) {
     mlir::Value condValue = op.getCondition();
+    auto ifResults = op.getResults();
     
     uint64_t condPC = currentPC();
     auto condIsa = std::make_unique<IfConditionIsa>();
@@ -243,12 +244,27 @@ void IsaSequenceBuilder::flattenSCFIfNested(mlir::scf::IfOp op,
     
     uint64_t thenStartPC = currentPC();
     
-    std::vector<mlir::Value> thenYieldValues;
     if (!op.getThenRegion().empty()) {
         for (auto& thenOp : op.getThenRegion().front().getOperations()) {
             if (auto yieldOp = llvm::dyn_cast<mlir::scf::YieldOp>(&thenOp)) {
-                for (auto operand : yieldOp.getOperands()) {
-                    thenYieldValues.push_back(operand);
+                for (size_t i = 0; i < yieldOp.getNumOperands() && i < parentIterArgs.size(); ++i) {
+                    mlir::Value yieldVal = yieldOp.getOperand(i);
+                    mlir::Value iterArg = parentIterArgs[i];
+                    
+                    auto assignIsa = std::make_unique<YieldAssignIsa>();
+                    assignIsa->setPC(allocatePC());
+                    assignIsa->setLocationInfo("scf.if.then.yield");
+                    assignIsa->setCondition(yieldVal);
+                    assignIsa->setForIV(iterArg);
+                    sequence.addInstruction(std::move(assignIsa));
+                }
+                
+                if (parentIterArgs.empty() && yieldOp.getNumOperands() > 0) {
+                    auto ifYieldIsa = std::make_unique<IfYieldIsa>();
+                    ifYieldIsa->setPC(allocatePC());
+                    ifYieldIsa->setLocationInfo("scf.if.then");
+                    ifYieldIsa->setIfResults(yieldOp.getOperands());
+                    sequence.addInstruction(std::move(ifYieldIsa));
                 }
             } else if (auto nestedIfOp = llvm::dyn_cast<mlir::scf::IfOp>(&thenOp)) {
                 flattenSCFIfNested(nestedIfOp, parentIterArgs);
@@ -261,13 +277,28 @@ void IsaSequenceBuilder::flattenSCFIfNested(mlir::scf::IfOp op,
     }
     
     uint64_t elseStartPC = currentPC();
-    std::vector<mlir::Value> elseYieldValues;
     bool hasElse = !op.getElseRegion().empty();
     if (hasElse) {
         for (auto& elseOp : op.getElseRegion().front().getOperations()) {
             if (auto yieldOp = llvm::dyn_cast<mlir::scf::YieldOp>(&elseOp)) {
-                for (auto operand : yieldOp.getOperands()) {
-                    elseYieldValues.push_back(operand);
+                for (size_t i = 0; i < yieldOp.getNumOperands() && i < parentIterArgs.size(); ++i) {
+                    mlir::Value yieldVal = yieldOp.getOperand(i);
+                    mlir::Value iterArg = parentIterArgs[i];
+                    
+                    auto assignIsa = std::make_unique<YieldAssignIsa>();
+                    assignIsa->setPC(allocatePC());
+                    assignIsa->setLocationInfo("scf.if.else.yield");
+                    assignIsa->setCondition(yieldVal);
+                    assignIsa->setForIV(iterArg);
+                    sequence.addInstruction(std::move(assignIsa));
+                }
+                
+                if (parentIterArgs.empty() && yieldOp.getNumOperands() > 0) {
+                    auto ifYieldIsa = std::make_unique<IfYieldIsa>();
+                    ifYieldIsa->setPC(allocatePC());
+                    ifYieldIsa->setLocationInfo("scf.if.else");
+                    ifYieldIsa->setIfResults(yieldOp.getOperands());
+                    sequence.addInstruction(std::move(ifYieldIsa));
                 }
             } else if (auto nestedIfOp = llvm::dyn_cast<mlir::scf::IfOp>(&elseOp)) {
                 flattenSCFIfNested(nestedIfOp, parentIterArgs);

@@ -1,4 +1,5 @@
 #include "IsaExecutor.h"
+#include "Instructions/FuncIsas.h"
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/Dialect/SCF/IR/SCF.h"
 #include "llvm/Support/raw_ostream.h"
@@ -61,11 +62,14 @@ bool IsaExecutor::tick() {
     
     if (verboseMode) {
         llvm::outs() << "Cycle[" << cycle << "] PC[" << pc << "] "
-                     << "IsaID[" << isa->getIsaID() << "] "
-                     << isa->getDescription() << "\n";
+                     << "IsaID[" << isa->getIsaID() << "] ";
     }
     
     executeIsa(isa);
+    
+    if (verboseMode) {
+        llvm::outs() << isa->getDescription() << "\n";
+    }
     
     return !ctx.isHalted();
 }
@@ -117,10 +121,32 @@ void IsaExecutor::executeIsa(Isa* isa) {
         }
         
         case IsaName::FuncCall: {
-            // 函数调用：保存返回地址并跳转到函数入口
-            ctx.pushCallFrame(pc + 1);
-            // 实际应该查找函数入口，这里简化处理
-            pc = isa->getJumpTarget();
+            auto* funcCallIsa = static_cast<FuncCallIsa*>(isa);
+            if (funcCallIsa->isExternalFunction()) {
+                HardwareCharacteristics hw = funcCallIsa->getHardwareCharacteristics(ctx);
+                if (asyncMode && hw.targetUnit != ExecutionUnitType::Scalar) {
+                    uint64_t taskId = dispatchTask(hw.targetUnit, hw.latency, 
+                                                   funcCallIsa->getCalleeName(), funcCallIsa->getPC());
+                    if (verboseMode) {
+                        llvm::outs() << "  Dispatched external func call task " << taskId << " on " 
+                                     << executionUnitToString(hw.targetUnit) << " unit, "
+                                     << "latency=" << hw.latency << "\n";
+                    }
+                } else if (hw.latency > 1) {
+                    for (uint64_t i = 1; i < hw.latency; ++i) {
+                        cycle++;
+                        updateExecutionUnits();
+                    }
+                    if (verboseMode) {
+                        llvm::outs() << "  External func call consumed " << hw.latency << " cycles\n";
+                    }
+                }
+                pc++;
+                return;
+            } else {
+                ctx.pushCallFrame(pc + 1);
+                pc = isa->getJumpTarget();
+            }
             break;
         }
         
